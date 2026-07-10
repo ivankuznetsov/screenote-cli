@@ -1,0 +1,44 @@
+version: 2
+
+project_name: screenote
+
+env:
+  - GOFLAGS=-mod=mod
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: screenote
+    main: ./cmd/screenote
+    binary: screenote
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+
+archives:
+  - id: screenote
+    ids:
+      - screenote
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  use: github
