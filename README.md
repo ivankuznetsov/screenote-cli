@@ -54,6 +54,14 @@ screenote --project 7 annotation get --annotation 456
 screenote --project 7 comment add --annotation 456 --body "Fix pushed in abc123"
 ```
 
+Publish a browser-free multi-page capture from image files produced by your agent or automation:
+
+```sh
+screenote --project 7 snapshot --manifest snapshot.json
+```
+
+The command validates and hashes the complete manifest locally before making a request, uploads images sequentially, resumes unchanged partial work without duplicates, waits for processing, and returns a Screenote review URL. It emits JSON Lines progress to stdout; other commands retain their single-JSON-document output. See [the snapshot manifest reference](docs/snapshot-manifest.md).
+
 Successful commands write JSON to stdout. Errors write JSON to stderr:
 
 ```json

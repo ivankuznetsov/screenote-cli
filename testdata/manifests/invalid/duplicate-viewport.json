@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "git_commit": "7f3a1c9",
+  "taken_at": "2026-07-10T14:30:00Z",
+  "images": [
+    { "page": "Homepage", "file": "one.png", "viewport": "desktop" },
+    { "page": "Homepage", "file": "two.png", "viewport": "desktop" }
+  ]
+}

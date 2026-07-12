@@ -16,12 +16,14 @@ import (
 )
 
 type app struct {
-	stdin      io.Reader
-	stdout     io.Writer
-	stderr     io.Writer
-	httpClient *http.Client
-	flags      appconfig.Values
-	configPath string
+	stdin                io.Reader
+	stdout               io.Writer
+	stderr               io.Writer
+	httpClient           *http.Client
+	snapshotPollInterval time.Duration
+	snapshotPollJitter   func(time.Duration) time.Duration
+	flags                appconfig.Values
+	configPath           string
 }
 
 func Execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -35,7 +37,11 @@ func Execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 }
 
 func NewTestCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, httpClient *http.Client) *cobra.Command {
-	a := &app{stdin: stdin, stdout: stdout, stderr: stderr, httpClient: httpClient}
+	a := &app{
+		stdin: stdin, stdout: stdout, stderr: stderr, httpClient: httpClient,
+		snapshotPollInterval: 5 * time.Millisecond,
+		snapshotPollJitter:   func(interval time.Duration) time.Duration { return interval },
+	}
 	return a.rootCommand(ctx)
 }
 
@@ -63,6 +69,7 @@ func (a *app) rootCommand(_ context.Context) *cobra.Command {
 		a.projectCommand(),
 		a.pageCommand(),
 		a.screenshotCommand(),
+		a.snapshotCommand(),
 		a.annotationCommand(),
 		a.commentCommand(),
 	)
