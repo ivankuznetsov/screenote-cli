@@ -26,6 +26,16 @@ type cliError struct {
 	Exit    int
 }
 
+type operationError struct {
+	err           error
+	operation     string
+	manifestEntry *int
+	snapshotID    int
+}
+
+func (e *operationError) Error() string { return e.err.Error() }
+func (e *operationError) Unwrap() error { return e.err }
+
 func (e *cliError) Error() string { return e.Message }
 
 func usageError(code, message string) error {
@@ -34,6 +44,14 @@ func usageError(code, message string) error {
 
 func authError(code, message string) error {
 	return &cliError{Code: code, Message: message, Exit: ExitAuth}
+}
+
+func genericError(code, message string) error {
+	return &cliError{Code: code, Message: message, Exit: ExitGeneric}
+}
+
+func withOperation(err error, operation string, manifestEntry *int, snapshotID int) error {
+	return &operationError{err: err, operation: operation, manifestEntry: manifestEntry, snapshotID: snapshotID}
 }
 
 func writeError(w io.Writer, err error) int {
@@ -55,10 +73,23 @@ func writeError(w io.Writer, err error) int {
 		}
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]string{
+	payload := map[string]any{
 		"error": message,
 		"code":  code,
-	})
+	}
+	var context *operationError
+	if errors.As(err, &context) {
+		if context.operation != "" {
+			payload["operation"] = context.operation
+		}
+		if context.manifestEntry != nil {
+			payload["manifest_entry"] = *context.manifestEntry
+		}
+		if context.snapshotID != 0 {
+			payload["snapshot_id"] = context.snapshotID
+		}
+	}
+	_ = json.NewEncoder(w).Encode(payload)
 	return exitCode
 }
 

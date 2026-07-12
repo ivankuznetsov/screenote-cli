@@ -1,6 +1,7 @@
 package screenote
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -17,12 +18,16 @@ import (
 )
 
 type Client struct {
-	baseURL     *url.URL
-	bearerToken string
-	httpClient  *http.Client
+	baseURL          *url.URL
+	bearerToken      string
+	httpClient       *http.Client
+	uploadHTTPClient *http.Client
 }
 
-const defaultHTTPTimeout = 30 * time.Second
+const (
+	defaultHTTPTimeout       = 30 * time.Second
+	defaultUploadHTTPTimeout = 5 * time.Minute
+)
 
 type Error struct {
 	StatusCode int
@@ -48,8 +53,15 @@ func NewClient(baseURL, bearerToken string, httpClient *http.Client) (*Client, e
 	if parsed.Scheme == "" || parsed.Host == "" {
 		return nil, errors.New("base url must include scheme and host")
 	}
+	uploadHTTPClient := httpClient
 	httpClient = httpClientOrDefault(httpClient)
-	return &Client{baseURL: parsed, bearerToken: bearerToken, httpClient: httpClient}, nil
+	if uploadHTTPClient == nil {
+		uploadHTTPClient = &http.Client{Timeout: defaultUploadHTTPTimeout}
+	}
+	return &Client{
+		baseURL: parsed, bearerToken: bearerToken,
+		httpClient: httpClient, uploadHTTPClient: uploadHTTPClient,
+	}, nil
 }
 
 func httpClientOrDefault(httpClient *http.Client) *http.Client {
@@ -130,6 +142,54 @@ func (c *Client) CreateScreenshot(ctx context.Context, project, title, pageValue
 	return c.doJSON(ctx, http.MethodPost, "/api/v1/screenshots", nil, headers, nil, pr)
 }
 
+func (c *Client) PrepareSnapshot(ctx context.Context, project string, request SnapshotPrepareRequest) (SnapshotResponse, error) {
+	var out SnapshotResponse
+	raw, err := json.Marshal(request)
+	if err != nil {
+		return out, err
+	}
+	_, err = c.doJSON(
+		ctx,
+		http.MethodPost,
+		"/api/v1/projects/"+url.PathEscape(project)+"/snapshots",
+		nil,
+		map[string]string{"Content-Type": "application/json"},
+		&out,
+		bytes.NewReader(raw),
+	)
+	return out, err
+}
+
+func (c *Client) Snapshot(ctx context.Context, project string, snapshotID int) (SnapshotResponse, error) {
+	var out SnapshotResponse
+	_, err := c.doJSON(
+		ctx,
+		http.MethodGet,
+		"/api/v1/projects/"+url.PathEscape(project)+"/snapshots/"+strconv.Itoa(snapshotID),
+		nil,
+		nil,
+		&out,
+		nil,
+	)
+	return out, err
+}
+
+func (c *Client) UploadSnapshotImage(ctx context.Context, project string, imageID int, contentType string, size int64, body io.Reader) (SnapshotImageUploadResponse, error) {
+	var out SnapshotImageUploadResponse
+	_, err := c.doJSONWithClientAndLength(
+		ctx,
+		c.uploadHTTPClient,
+		http.MethodPut,
+		"/api/v1/projects/"+url.PathEscape(project)+"/screenshot_images/"+strconv.Itoa(imageID),
+		nil,
+		map[string]string{"Content-Type": contentType},
+		&out,
+		body,
+		size,
+	)
+	return out, err
+}
+
 func (c *Client) Annotations(ctx context.Context, screenshot, project string, query url.Values) (json.RawMessage, AnnotationsResponse, error) {
 	var out AnnotationsResponse
 	if project != "" {
@@ -178,6 +238,14 @@ func WithLimitOffset(values url.Values, limit, offset int) url.Values {
 }
 
 func (c *Client) doJSON(ctx context.Context, method, rawPath string, query url.Values, headers map[string]string, out any, body io.Reader) (json.RawMessage, error) {
+	return c.doJSONWithLength(ctx, method, rawPath, query, headers, out, body, -1)
+}
+
+func (c *Client) doJSONWithLength(ctx context.Context, method, rawPath string, query url.Values, headers map[string]string, out any, body io.Reader, contentLength int64) (json.RawMessage, error) {
+	return c.doJSONWithClientAndLength(ctx, c.httpClient, method, rawPath, query, headers, out, body, contentLength)
+}
+
+func (c *Client) doJSONWithClientAndLength(ctx context.Context, httpClient *http.Client, method, rawPath string, query url.Values, headers map[string]string, out any, body io.Reader, contentLength int64) (json.RawMessage, error) {
 	u := *c.baseURL
 	u.Path = strings.TrimRight(c.baseURL.Path, "/") + rawPath
 	u.RawQuery = query.Encode()
@@ -189,12 +257,15 @@ func (c *Client) doJSON(ctx context.Context, method, rawPath string, query url.V
 	if c.bearerToken != "" {
 		req.Header.Set("Authorization", "Bearer "+c.bearerToken)
 	}
+	if contentLength >= 0 {
+		req.ContentLength = contentLength
+	}
 	req.Header.Set("Accept", "application/json")
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

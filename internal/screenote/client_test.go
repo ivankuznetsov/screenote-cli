@@ -1,6 +1,7 @@
 package screenote
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestClientSendsAuthAndParsesErrors(t *testing.T) {
@@ -102,7 +104,87 @@ func TestNewClientUsesBoundedDefaultHTTPClient(t *testing.T) {
 	if client.httpClient.Timeout != defaultHTTPTimeout {
 		t.Fatalf("timeout=%s want %s", client.httpClient.Timeout, defaultHTTPTimeout)
 	}
+	if client.uploadHTTPClient.Timeout != defaultUploadHTTPTimeout {
+		t.Fatalf("upload timeout=%s want %s", client.uploadHTTPClient.Timeout, defaultUploadHTTPTimeout)
+	}
 	if oauthClient := httpClientOrDefault(nil); oauthClient.Timeout != defaultHTTPTimeout {
 		t.Fatalf("OAuth timeout=%s want %s", oauthClient.Timeout, defaultHTTPTimeout)
+	}
+}
+
+func TestNewClientPreservesCustomHTTPClientForUploads(t *testing.T) {
+	custom := &http.Client{Timeout: 17 * time.Second}
+	client, err := NewClient("https://screenote.test", "token", custom)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.httpClient != custom || client.uploadHTTPClient != custom {
+		t.Fatal("custom HTTP client policy was not preserved for every request type")
+	}
+}
+
+func TestClientSnapshotPrepareUploadAndShow(t *testing.T) {
+	requests := make(chan *http.Request, 3)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests <- r.Clone(r.Context())
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/projects/7/snapshots":
+			var request SnapshotPrepareRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatal(err)
+			}
+			if request.ManifestDigest != "manifest" || len(request.Entries) != 1 || request.Entries[0].FileRefSHA256 != "ref" {
+				t.Fatalf("request = %#v", request)
+			}
+			_ = json.NewEncoder(w).Encode(SnapshotResponse{
+				Operation: "created", SnapshotID: 11, State: "awaiting_upload",
+				Entries: []SnapshotEntryResponse{{ImageID: 12, Viewport: "desktop"}},
+			})
+		case r.Method == http.MethodPut && r.URL.Path == "/api/v1/projects/7/screenshot_images/12":
+			if r.Header.Get("Content-Type") != "image/png" || r.ContentLength != 9 {
+				t.Fatalf("headers = %#v length=%d", r.Header, r.ContentLength)
+			}
+			body, _ := io.ReadAll(r.Body)
+			if string(body) != "png-bytes" {
+				t.Fatalf("body = %q", body)
+			}
+			_ = json.NewEncoder(w).Encode(SnapshotImageUploadResponse{
+				Operation: "uploaded", SnapshotID: 11, ImageID: 12,
+				State: "processing", Status: "pending", Attached: true, SnapshotState: "processing",
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/projects/7/snapshots/11":
+			_ = json.NewEncoder(w).Encode(SnapshotResponse{Operation: "status", SnapshotID: 11, State: "ready"})
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "token", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := SnapshotPrepareRequest{
+		Version: 1, GitCommit: "abc1234", TakenAt: "2026-07-10T10:00:00.000000Z", ManifestDigest: "manifest",
+		Entries: []SnapshotPrepareEntry{{Page: "Home", Title: "Home", Viewport: "desktop", MIMEType: "image/png", ContentSHA256: "sha", FileRefSHA256: "ref"}},
+	}
+	prepared, err := client.PrepareSnapshot(context.Background(), "7", request)
+	if err != nil || prepared.SnapshotID != 11 {
+		t.Fatalf("prepared=%#v err=%v", prepared, err)
+	}
+	uploaded, err := client.UploadSnapshotImage(context.Background(), "7", 12, "image/png", 9, bytes.NewBufferString("png-bytes"))
+	if err != nil || uploaded.Operation != "uploaded" {
+		t.Fatalf("uploaded=%#v err=%v", uploaded, err)
+	}
+	shown, err := client.Snapshot(context.Background(), "7", 11)
+	if err != nil || shown.State != "ready" {
+		t.Fatalf("shown=%#v err=%v", shown, err)
+	}
+
+	for range 3 {
+		req := <-requests
+		if req.Header.Get("Authorization") != "Bearer token" || req.Header.Get("Accept") != "application/json" {
+			t.Fatalf("headers = %#v", req.Header)
+		}
 	}
 }

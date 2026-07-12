@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "manifest": {
+    "namespace": "screenote-manifest-v1",
+    "components": [
+      "1",
+      "abc1234",
+      "2026-07-10T10:00:00.000000Z",
+      "1",
+      "Home",
+      "Home",
+      "desktop",
+      "image/png",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ],
+    "sha256": "ca856cd6e0c2970a26389d79999178be71981070d9bedce2d41291a8e5ee0187"
+  },
+  "group": {
+    "namespace": "screenote-screenshot-v1",
+    "components": [
+      "Home",
+      "Home",
+      "1",
+      "desktop",
+      "image/png",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ],
+    "sha256": "241e5af21383eebe4aaeb001486d42fcb55918b0e2e87ff41ae464a6afcb32e2"
+  }
+}
