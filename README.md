@@ -4,7 +4,7 @@ The public command-line client for [Screenote](https://screenote.ai), a visual f
 
 ## Install
 
-Install the latest tagged release with Go:
+Install the latest version with Go:
 
 ```sh
 go install github.com/ivankuznetsov/screenote-cli/cmd/screenote@latest
