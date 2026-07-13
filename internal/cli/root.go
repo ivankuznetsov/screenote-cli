@@ -24,6 +24,8 @@ type app struct {
 	snapshotPollJitter   func(time.Duration) time.Duration
 	flags                appconfig.Values
 	configPath           string
+	now                  func() time.Time
+	wait                 func(context.Context, time.Duration) error
 }
 
 func Execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -58,6 +60,7 @@ func (a *app) rootCommand(_ context.Context) *cobra.Command {
 		return usageError("invalid_flag", err.Error())
 	})
 	root.PersistentFlags().StringVar(&a.flags.Token, "token", "", "Screenote OAuth bearer token")
+	_ = root.PersistentFlags().MarkHidden("token")
 	root.PersistentFlags().StringVar(&a.flags.BaseURL, "base-url", "", "Screenote base URL")
 	root.PersistentFlags().StringVar(&a.flags.Project, "project", "", "Screenote project ID")
 	root.PersistentFlags().StringVar(&a.configPath, "config", "", "Config file path")
@@ -133,7 +136,7 @@ func (a *app) storedLoginToken(ctx context.Context, resolved appconfig.Resolved)
 	}
 	credentials := values.Login
 	if credentials == nil || credentials.AccessToken == "" {
-		return "", usageError("missing_token", "OAuth bearer token is required; set --token, SCREENOTE_TOKEN, config token, or run screenote login")
+		return "", usageError("missing_token", "OAuth login is required; run screenote login or screenote login --device")
 	}
 	if credentials.BaseURL != "" && resolved.BaseURL != "" && !sameBaseURL(credentials.BaseURL, resolved.BaseURL) {
 		return "", authError("invalid_token", "stored login credentials are for a different base URL")

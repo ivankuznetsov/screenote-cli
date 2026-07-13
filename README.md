@@ -14,7 +14,7 @@ GitHub Release binaries and Homebrew installation will be available with the fir
 
 ## Authenticate
 
-Interactive OAuth login:
+Use OAuth login from a machine with a browser:
 
 ```sh
 screenote --base-url https://screenote.ai login
@@ -23,21 +23,19 @@ screenote logout
 
 If a browser cannot open, the CLI writes a JSON object containing `authorization_url` to stderr so you can open it manually.
 
-CI and agents can use a pre-provisioned OAuth bearer token:
+For SSH, tmux, containers, and other headless sessions, use OAuth device authorization instead. The CLI prints a short code and URL, waits while you approve the request in any browser, and then stores the same refreshable OAuth credentials as interactive login:
 
 ```sh
-screenote config set --base-url https://screenote.ai --token "$SCREENOTE_TOKEN"
-screenote config
+screenote --base-url https://screenote.ai login --device
 ```
 
-`screenote config` reports whether a token is set and where it came from, but never prints the token.
+The device-login prompt is JSON on stderr, so agents can read it without exposing OAuth access or refresh credentials:
 
-Configuration precedence is:
+```json
+{"event":"device_authorization","authorization_url":"https://screenote.ai/oauth/device?user_code=ABCDE-FGHIJ","verification_uri":"https://screenote.ai/oauth/device","user_code":"ABCDE-FGHIJ","expires_in":600,"interval":5}
+```
 
-1. Flags: `--token`, `--base-url`, `--project`
-2. Environment: `SCREENOTE_TOKEN`, `SCREENOTE_BASE_URL`, `SCREENOTE_PROJECT`
-3. Config file: `~/.config/screenote/config.toml`
-4. Stored credentials from `screenote login`
+OAuth credentials are stored in `~/.config/screenote/config.toml` with file mode `0600` and refreshed automatically. Use `screenote logout` to remove them. Server and project configuration can still come from `--base-url` / `--project`, `SCREENOTE_BASE_URL` / `SCREENOTE_PROJECT`, or the config file.
 
 Ordinary commands never prompt or open a browser. Project-scoped commands require `--project`, `SCREENOTE_PROJECT`, or config `project`.
 
