@@ -114,6 +114,28 @@ func TestServerStatusExitCodes(t *testing.T) {
 	}
 }
 
+func TestCompatibilityTokenFlagsStayHiddenFromHelp(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "root", args: []string{"--help"}},
+		{name: "config set", args: []string{"config", "set", "--help"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stdout, stderr, code := runCLI(t, test.args, "")
+			if code != ExitOK {
+				t.Fatalf("code=%d stderr=%s", code, stderr)
+			}
+			if strings.Contains(stdout, "--token") || strings.Contains(stderr, "--token") {
+				t.Fatalf("hidden compatibility flag leaked into help: stdout=%q stderr=%q", stdout, stderr)
+			}
+		})
+	}
+}
+
 func runCLI(t *testing.T, args []string, stdin string) (string, string, int) {
 	t.Helper()
 	var out, errOut bytes.Buffer

@@ -56,6 +56,7 @@ func (a *app) configCommand() *cobra.Command {
 		},
 	}
 	set.Flags().StringVar(&setValues.Token, "token", "", "OAuth bearer token to write")
+	_ = set.Flags().MarkHidden("token")
 	set.Flags().StringVar(&setValues.BaseURL, "base-url", "", "Base URL to write")
 	set.Flags().StringVar(&setValues.Project, "project", "", "Project ID to write")
 	cmd.AddCommand(set)
