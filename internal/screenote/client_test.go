@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -35,6 +36,87 @@ func TestClientSendsAuthAndParsesErrors(t *testing.T) {
 	}
 	if apiErr.StatusCode != http.StatusUnauthorized || apiErr.Code != "unauthorized" {
 		t.Fatalf("apiErr = %#v", apiErr)
+	}
+}
+
+func TestClientCreateProject(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/projects" {
+			t.Fatalf("%s %s", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/x-www-form-urlencoded" {
+			t.Fatalf("Content-Type = %q", got)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		if got := r.Form.Get("name"); got != "Plugin review" {
+			t.Fatalf("name = %q", got)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"project":{"id":7,"name":"Plugin review","role":"owner"}}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-token", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := client.CreateProject(context.Background(), "Plugin review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"role":"owner"`) {
+		t.Fatalf("raw = %s", raw)
+	}
+}
+
+func TestClientResolveAnnotation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/annotations/5/resolve" {
+			t.Fatalf("%s %s", r.Method, r.URL.Path)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		if got := r.Form.Get("project_id"); got != "7" {
+			t.Fatalf("project_id = %q", got)
+		}
+		if got := r.Form.Get("comment"); got != "Fixed in abc1234" {
+			t.Fatalf("comment = %q", got)
+		}
+		_, _ = w.Write([]byte(`{"success":true,"operation":"resolved","annotation":{"id":5,"status":"resolved"}}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-token", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := client.ResolveAnnotation(context.Background(), "5", "7", "Fixed in abc1234")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"operation":"resolved"`) {
+		t.Fatalf("raw = %s", raw)
+	}
+}
+
+func TestClientCreateProjectReturnsAPIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"error":"Name cannot be blank","code":"invalid_name"}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-token", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.CreateProject(context.Background(), " ")
+	var apiErr *Error
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusUnprocessableEntity || apiErr.Code != "invalid_name" {
+		t.Fatalf("error = %#v", err)
 	}
 }
 

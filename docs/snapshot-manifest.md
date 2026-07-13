@@ -43,11 +43,13 @@ Use `--wait 5m` to override the default two-minute processing wait. The maximum 
 | `taken_at` | Required ISO 8601 timestamp with `Z` or an explicit numeric offset. |
 | `images` | Required array containing 1-100 entries. |
 | `images[].page` | Required page name, at most 255 characters. |
-| `images[].title` | Optional screenshot title; defaults to `page`. |
-| `images[].file` | Required path relative to the manifest, contained within its directory. |
+| `images[].title` | Optional logical screenshot title; defaults to `page`. Every viewport variant of that screenshot must use the identical title. Do not append `desktop`, `tablet`, or `mobile`. |
+| `images[].file` | Required path relative to the manifest, contained within its directory. The filename may identify the viewport (for example, `home-mobile.png`). |
 | `images[].viewport` | Required `desktop`, `tablet`, or `mobile`. |
 
-Entries with the same page and title become viewport variants of one Screenote screenshot. A page/title group may contain each viewport at most once. Every file must be a non-empty, readable PNG or JPEG no larger than 20 MB; type is detected from bytes rather than the extension.
+Entries with the same page and title become viewport variants of one Screenote screenshot. Use one logical title for all of those entries: `"Benchmark overview"` for both desktop and mobile, never `"Benchmark overview — desktop"` and `"Benchmark overview — mobile"`. Viewport identity belongs only in `viewport` and, when useful, `file`. When separate titles on the same page look like viewport-suffixed versions of one logical title, the CLI rejects the manifest so a capture mistake cannot silently create separate screenshot cards. A lone logical title may still end in a viewport word.
+
+A page/title group may contain each viewport at most once. Every file must be a non-empty, readable PNG or JPEG no larger than 20 MB; type is detected from bytes rather than the extension.
 
 ## Identity and resume
 

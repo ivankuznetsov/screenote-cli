@@ -80,7 +80,7 @@ func (a *app) annotationCommand() *cobra.Command {
 	list.Flags().IntVar(&limit, "limit", 50, "Maximum results")
 	list.Flags().IntVar(&offset, "offset", 0, "Results to skip")
 
-	var annotationID string
+	var annotationID, cropFile string
 	get := &cobra.Command{
 		Use:   "get",
 		Short: "Get annotation details",
@@ -88,6 +88,13 @@ func (a *app) annotationCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if annotationID == "" {
 				return missingFlag("annotation")
+			}
+			if cropFile != "" {
+				var err error
+				cropFile, err = validateCropFilePath(cropFile)
+				if err != nil {
+					return err
+				}
 			}
 			client, project, err := a.clientForProject(cmd.Context())
 			if err != nil {
@@ -97,12 +104,43 @@ func (a *app) annotationCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if cropFile != "" {
+				payload, err := exportAnnotationCrop(raw, cropFile)
+				if err != nil {
+					return err
+				}
+				return writeJSON(a.stdout, payload)
+			}
 			return writeRawJSON(a.stdout, raw)
 		},
 	}
 	get.Flags().StringVar(&annotationID, "annotation", "", "Annotation ID")
+	get.Flags().StringVar(&cropFile, "crop-file", "", "Write the annotation crop to a private local PNG file")
 
-	cmd.AddCommand(list, get)
+	var resolveAnnotationID, comment string
+	resolve := &cobra.Command{
+		Use:   "resolve",
+		Short: "Resolve an annotation",
+		Args:  rejectArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if resolveAnnotationID == "" {
+				return missingFlag("annotation")
+			}
+			client, project, err := a.clientForProject(cmd.Context())
+			if err != nil {
+				return err
+			}
+			raw, err := client.ResolveAnnotation(cmd.Context(), resolveAnnotationID, project, comment)
+			if err != nil {
+				return err
+			}
+			return writeRawJSON(a.stdout, raw)
+		},
+	}
+	resolve.Flags().StringVar(&resolveAnnotationID, "annotation", "", "Annotation ID")
+	resolve.Flags().StringVar(&comment, "comment", "", "Resolution comment")
+
+	cmd.AddCommand(list, get, resolve)
 	return cmd
 }
 

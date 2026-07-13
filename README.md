@@ -43,14 +43,19 @@ Ordinary commands never prompt or open a browser. Project-scoped commands requir
 
 ```sh
 screenote project list
+screenote project create --name "Website review"
 screenote --project 7 page list
 screenote --project 7 screenshot create --title "Homepage" --file screenshot.png
 cat screenshot.png | screenote --project 7 screenshot create --title "Homepage"
 screenote --project 7 screenshot list --status ready --limit 25
 screenote --project 7 annotation list --screenshot 123 --status open
 screenote --project 7 annotation get --annotation 456
+screenote --project 7 annotation get --annotation 456 --crop-file annotation-456.png
+screenote --project 7 annotation resolve --annotation 456 --comment "Fixed in abc123"
 screenote --project 7 comment add --annotation 456 --body "Fix pushed in abc123"
 ```
+
+`annotation get --crop-file PATH` decodes the annotation crop to a private local PNG (mode `0600`). Its JSON output includes `crop_file` and omits `cropped_image_base64`; without the flag, the API response is printed unchanged.
 
 Publish a browser-free multi-page capture from image files produced by your agent or automation:
 

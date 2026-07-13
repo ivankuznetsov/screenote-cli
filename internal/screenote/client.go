@@ -77,6 +77,12 @@ func (c *Client) Projects(ctx context.Context) (json.RawMessage, ProjectsRespons
 	return raw, out, err
 }
 
+func (c *Client) CreateProject(ctx context.Context, name string) (json.RawMessage, error) {
+	form := url.Values{"name": []string{name}}
+	headers := map[string]string{"Content-Type": "application/x-www-form-urlencoded"}
+	return c.doJSON(ctx, http.MethodPost, "/api/v1/projects", nil, headers, nil, strings.NewReader(form.Encode()))
+}
+
 func (c *Client) Pages(ctx context.Context, project string) (json.RawMessage, error) {
 	return c.doJSON(ctx, http.MethodGet, "/api/v1/projects/"+url.PathEscape(project)+"/pages", nil, nil, nil, nil)
 }
@@ -206,6 +212,15 @@ func (c *Client) Annotation(ctx context.Context, id, project string) (json.RawMe
 		query.Set("project_id", project)
 	}
 	return c.doJSON(ctx, http.MethodGet, "/api/v1/annotations/"+url.PathEscape(id), query, nil, nil, nil)
+}
+
+func (c *Client) ResolveAnnotation(ctx context.Context, annotation, project, comment string) (json.RawMessage, error) {
+	form := url.Values{"project_id": []string{project}}
+	if comment != "" {
+		form.Set("comment", comment)
+	}
+	headers := map[string]string{"Content-Type": "application/x-www-form-urlencoded"}
+	return c.doJSON(ctx, http.MethodPost, "/api/v1/annotations/"+url.PathEscape(annotation)+"/resolve", nil, headers, nil, strings.NewReader(form.Encode()))
 }
 
 func (c *Client) AddComment(ctx context.Context, annotation, project, body string) (json.RawMessage, error) {
