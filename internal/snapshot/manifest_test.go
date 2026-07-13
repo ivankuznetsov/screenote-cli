@@ -170,6 +170,92 @@ func TestCheckedInValidManifestFixturePreflights(t *testing.T) {
 	if len(prepared.Images) != 2 || prepared.ManifestDigest == "" {
 		t.Fatalf("prepared fixture = %#v", prepared)
 	}
+	if prepared.Images[0].Title != "Homepage" || prepared.Images[1].Title != "Homepage" {
+		t.Fatalf("viewport variants must use one logical title: %#v", prepared.Images)
+	}
+	if prepared.Images[0].GroupDigest != prepared.Images[1].GroupDigest {
+		t.Fatalf("viewport variants were split into different screenshot groups: %#v", prepared.Images)
+	}
+}
+
+func TestLoadRejectsCorrelatedViewportSuffixesInSeparateTitles(t *testing.T) {
+	dir := t.TempDir()
+	writePNG(t, filepath.Join(dir, "shot.png"), color.RGBA{A: 255})
+	now := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
+	titlePairs := [][2]string{
+		{"Benchmark overview — desktop", "Benchmark overview — mobile"},
+		{"Homepage desktop", "Homepage mobile"},
+		{"Homepage.desktop", "Homepage.mobile"},
+		{"Checkout (desktop)", "Checkout (mobile)"},
+		{"desktop", "mobile"},
+		{"Hero: desktop viewport", "Hero: mobile viewport"},
+		{"Account settings", "Account settings / mobile"},
+	}
+	for _, titles := range titlePairs {
+		t.Run(titles[0]+" and "+titles[1], func(t *testing.T) {
+			manifest := Manifest{
+				Version:   1,
+				GitCommit: "abc1234",
+				TakenAt:   "2026-07-10T10:00:00Z",
+				Images: []ImageEntry{
+					{Page: "Home", Title: titles[0], File: "shot.png", Viewport: "desktop"},
+					{Page: "Home", Title: titles[1], File: "shot.png", Viewport: "mobile"},
+				},
+			}
+			_, err := prepareManifest(dir, manifest, now)
+			var validation *ValidationError
+			if !errors.As(err, &validation) || validation.Code != "viewport_in_title" || validation.Index == nil || *validation.Index != 1 {
+				t.Fatalf("error = %#v", err)
+			}
+		})
+	}
+}
+
+func TestLoadAllowsLoneOrSharedLogicalTitleEndingInViewportWord(t *testing.T) {
+	dir := t.TempDir()
+	writePNG(t, filepath.Join(dir, "shot.png"), color.RGBA{A: 255})
+	manifests := []Manifest{
+		{
+			Version:   1,
+			GitCommit: "abc1234",
+			TakenAt:   "2026-07-10T10:00:00Z",
+			Images: []ImageEntry{{
+				Page: "Docs", Title: "Platform / Mobile", File: "shot.png", Viewport: "mobile",
+			}},
+		},
+		{
+			Version:   1,
+			GitCommit: "abc1234",
+			TakenAt:   "2026-07-10T10:00:00Z",
+			Images: []ImageEntry{
+				{Page: "Docs", Title: "Platform / Mobile", File: "shot.png", Viewport: "desktop"},
+				{Page: "Docs", Title: "Platform / Mobile", File: "shot.png", Viewport: "mobile"},
+			},
+		},
+		{
+			Version:   1,
+			GitCommit: "abc1234",
+			TakenAt:   "2026-07-10T10:00:00Z",
+			Images: []ImageEntry{{
+				Page: "Docs", Title: "Mobile account settings", File: "shot.png", Viewport: "mobile",
+			}},
+		},
+		{
+			Version:   1,
+			GitCommit: "abc1234",
+			TakenAt:   "2026-07-10T10:00:00Z",
+			Images: []ImageEntry{
+				{Page: "Docs", Title: "Platform", File: "shot.png", Viewport: "mobile"},
+				{Page: "Docs", Title: "Platform / Mobile", File: "shot.png", Viewport: "mobile"},
+			},
+		},
+	}
+
+	for _, manifest := range manifests {
+		if _, err := prepareManifest(dir, manifest, time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func TestManifestIdentityChangesForEverySemanticInput(t *testing.T) {

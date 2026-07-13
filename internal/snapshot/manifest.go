@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -149,6 +150,9 @@ func prepareManifest(manifestDir string, manifest Manifest, now time.Time) (*Pre
 		seen[key] = struct{}{}
 		prepared.Images = append(prepared.Images, image)
 	}
+	if err := validateViewportTitleGroups(prepared.Images); err != nil {
+		return nil, err
+	}
 
 	assignGroupDigests(prepared.Images)
 	components := []string{strconv.Itoa(Version), gitCommit, normalizedTakenAt, strconv.Itoa(len(prepared.Images))}
@@ -219,6 +223,60 @@ func normalizeLabel(value, field string, index int) (string, error) {
 		return "", validationError("invalid_"+field, field+" is too long", &index)
 	}
 	return normalized, nil
+}
+
+func validateViewportTitleGroups(images []PreparedImage) error {
+	type titleObservation struct {
+		title     string
+		viewport  string
+		hasSuffix bool
+	}
+
+	groups := make(map[[2]string][]titleObservation)
+	for _, image := range images {
+		base, hasSuffix := logicalTitleBase(image.Title)
+		key := [2]string{image.Page, base}
+		for _, previous := range groups[key] {
+			if previous.title != image.Title && previous.viewport != image.Viewport && (previous.hasSuffix || hasSuffix) {
+				index := image.Index
+				return validationError(
+					"viewport_in_title",
+					"viewport variants must share one exact logical title; put viewport only in viewport and file",
+					&index,
+				)
+			}
+		}
+		groups[key] = append(groups[key], titleObservation{
+			title: image.Title, viewport: image.Viewport, hasSuffix: hasSuffix,
+		})
+	}
+	return nil
+}
+
+func logicalTitleBase(title string) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(title))
+	normalized = strings.TrimSpace(strings.TrimRight(normalized, ")]"))
+	for _, viewport := range []string{"desktop", "tablet", "mobile"} {
+		for _, suffix := range []string{viewport, viewport + " view", viewport + " viewport"} {
+			if normalized == suffix {
+				return "", true
+			}
+			if !strings.HasSuffix(normalized, suffix) {
+				continue
+			}
+			prefix := strings.TrimSuffix(normalized, suffix)
+			separator, _ := utf8.DecodeLastRuneInString(prefix)
+			if titleSeparator(separator) {
+				base := strings.TrimRightFunc(prefix, titleSeparator)
+				return strings.TrimSpace(base), true
+			}
+		}
+	}
+	return normalized, false
+}
+
+func titleSeparator(r rune) bool {
+	return unicode.IsSpace(r) || unicode.IsPunct(r) || r == '|'
 }
 
 func resolveLocalFile(rootPath, reference string, index int) (string, error) {
