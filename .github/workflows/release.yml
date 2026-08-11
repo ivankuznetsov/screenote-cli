@@ -93,7 +93,7 @@ jobs:
         shell: bash
         run: |
           cd dist
-          sha256sum *.tar.gz > checksums.txt
+          sha256sum ./*.tar.gz > checksums.txt
 
       - name: Publish GitHub release
         env:
@@ -105,3 +105,10 @@ jobs:
           --title "Screenote CLI ${GITHUB_REF_NAME}"
           --generate-notes
           dist/*
+
+  publish-aur:
+    needs: publish
+    uses: ./.github/workflows/publish-aur.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets: inherit

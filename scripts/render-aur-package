@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if (($# != 2)); then
+  printf 'Usage: %s <vMAJOR.MINOR.PATCH> <output-directory>\n' "${0##*/}" >&2
+  exit 2
+fi
+
+tag="$1"
+version="${tag#v}"
+output_dir="$2"
+repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+template="$repo_dir/packaging/aur/screenote-cli/PKGBUILD.in"
+
+if [[ $tag != v* || ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  printf 'render-aur-package: tag must use vMAJOR.MINOR.PATCH\n' >&2
+  exit 2
+fi
+
+archive=$(mktemp "${TMPDIR:-/tmp}/screenote-cli-${version}.XXXXXX.tar.gz")
+cleanup() {
+  rm -f -- "$archive"
+}
+trap cleanup EXIT
+
+curl --fail --silent --show-error --location --retry 3 \
+  --output "$archive" \
+  "https://github.com/ivankuznetsov/screenote-cli/archive/refs/tags/${tag}.tar.gz"
+checksum=$(sha256sum "$archive" | cut -d' ' -f1)
+
+mkdir -p "$output_dir"
+sed \
+  -e "s/@VERSION@/${version}/g" \
+  -e "s/@SHA256@/${checksum}/g" \
+  "$template" >"$output_dir/PKGBUILD"
+
+printf 'Rendered screenote-cli %s (%s)\n' "$version" "$checksum"
