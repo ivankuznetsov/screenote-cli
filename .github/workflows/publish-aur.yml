@@ -1,0 +1,51 @@
+name: Publish AUR
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Stable CLI tag to publish
+        required: true
+        type: string
+    secrets:
+      AUR_SSH_PRIVATE_KEY:
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Stable CLI tag to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: screenote-cli-aur
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout AUR packaging tooling
+        uses: actions/checkout@v6
+        with:
+          # This keeps retries for older releases working when the packaging
+          # automation has changed since the requested tag was created.
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Render stable PKGBUILD
+        run: scripts/render-aur-package "${{ inputs.tag }}" dist/aur/screenote-cli
+
+      - name: Build and publish AUR package
+        uses: KSXGitHub/github-actions-deploy-aur@084b0d9b15415bf9cdb65d44dad1efe37a354050 # v4.2.0
+        with:
+          pkgname: screenote-cli
+          asset_dir: dist/aur/screenote-cli
+          test: true
+          test_flags: --clean --cleanbuild --syncdeps --noconfirm
+          commit_username: Ivan Kuznetsov
+          commit_email: ivankuznetsov@users.noreply.github.com
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: Release ${{ inputs.tag }}
