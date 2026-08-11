@@ -4,7 +4,18 @@ The public command-line client for [Screenote](https://screenote.ai), a visual f
 
 ## Install
 
-With Go 1.26 or newer installed, install the latest version:
+On Omarchy or another Arch-based system, install the package through the AUR:
+
+```sh
+omarchy pkg aur add screenote-cli-git
+```
+
+The package provides `/usr/bin/screenote` and follows the latest CLI `main`
+branch. Its reviewed `PKGBUILD` is maintained in
+[`packaging/aur/screenote-cli-git`](packaging/aur/screenote-cli-git).
+
+For source development, Go 1.26 or newer can install the latest version
+directly:
 
 ```sh
 go install github.com/ivankuznetsov/screenote-cli/cmd/screenote@latest
