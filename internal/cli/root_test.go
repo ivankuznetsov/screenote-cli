@@ -36,6 +36,24 @@ func TestProjectListCommand(t *testing.T) {
 	}
 }
 
+func TestVersionCommand(t *testing.T) {
+	stdout, stderr, code := runCLI(t, []string{"version"}, "")
+	if code != ExitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	var payload struct {
+		Version   string `json:"version"`
+		Commit    string `json:"commit"`
+		BuildDate string `json:"build_date"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("stdout=%s err=%v", stdout, err)
+	}
+	if payload.Version != "dev" || payload.Commit != "unknown" || payload.BuildDate != "unknown" {
+		t.Fatalf("payload=%#v", payload)
+	}
+}
+
 func TestScreenshotCreateReadsStdin(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/screenshots" {

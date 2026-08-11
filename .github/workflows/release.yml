@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.x"
+          cache: true
+
+      - name: Test
+        run: go test ./...
+
+      - name: Vet
+        run: go vet ./...
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.x"
+          cache: true
+
+      - name: Build release archive
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag must use vMAJOR.MINOR.PATCH" >&2
+            exit 1
+          fi
+          build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          archive="screenote_${version}_${GOOS}_${GOARCH}.tar.gz"
+          mkdir -p dist staging
+          go build -trimpath \
+            -ldflags="-s -w -X github.com/ivankuznetsov/screenote-cli/internal/cli.Version=${version} -X github.com/ivankuznetsov/screenote-cli/internal/cli.Commit=${GITHUB_SHA} -X github.com/ivankuznetsov/screenote-cli/internal/cli.BuildDate=${build_date}" \
+            -o staging/screenote ./cmd/screenote
+          cp LICENSE README.md staging/
+          tar -czf "dist/${archive}" -C staging screenote LICENSE README.md
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenote-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create checksums
+        shell: bash
+        run: |
+          cd dist
+          sha256sum *.tar.gz > checksums.txt
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${GITHUB_REF_NAME}"
+          --repo "${GITHUB_REPOSITORY}"
+          --verify-tag
+          --title "Screenote CLI ${GITHUB_REF_NAME}"
+          --generate-notes
+          dist/*

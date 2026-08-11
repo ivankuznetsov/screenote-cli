@@ -66,6 +66,7 @@ func (a *app) rootCommand(_ context.Context) *cobra.Command {
 	root.PersistentFlags().StringVar(&a.configPath, "config", "", "Config file path")
 
 	root.AddCommand(
+		a.versionCommand(),
 		a.configCommand(),
 		a.loginCommand(),
 		a.logoutCommand(),
