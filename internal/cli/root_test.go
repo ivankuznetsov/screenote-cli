@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -138,6 +139,16 @@ func TestCompatibilityTokenFlagsStayHiddenFromHelp(t *testing.T) {
 
 func runCLI(t *testing.T, args []string, stdin string) (string, string, int) {
 	t.Helper()
+	hasConfig := false
+	for _, arg := range args {
+		if arg == "--config" || strings.HasPrefix(arg, "--config=") {
+			hasConfig = true
+			break
+		}
+	}
+	if !hasConfig {
+		args = append([]string{"--config", filepath.Join(t.TempDir(), "config.toml")}, args...)
+	}
 	var out, errOut bytes.Buffer
 	cmd := NewTestCommand(context.Background(), strings.NewReader(stdin), &out, &errOut, http.DefaultClient)
 	cmd.SetArgs(args)

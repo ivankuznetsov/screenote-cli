@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	appconfig "github.com/ivankuznetsov/screenote-cli/internal/config"
 )
 
 func TestScreenshotListSendsFilters(t *testing.T) {
@@ -516,6 +518,53 @@ func TestConfigMasksBearerToken(t *testing.T) {
 	}
 	if !payload.TokenSet || payload.Sources.Token != "flag" {
 		t.Fatalf("payload=%#v", payload)
+	}
+}
+
+func TestConfigReportsStoredOAuthLogin(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	if err := appconfig.Save(configPath, appconfig.Values{
+		BaseURL: "https://screenote.test",
+		Project: "3",
+		Login: &appconfig.LoginCredentials{
+			AccessToken: "stored-access-token",
+			ClientID:    "client-1",
+			BaseURL:     "https://screenote.test",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, code := runCLI(t, []string{"--config", configPath, "config"}, "")
+	if code != ExitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if strings.Contains(stdout, "stored-access-token") {
+		t.Fatalf("stdout leaked token: %s", stdout)
+	}
+	var payload struct {
+		TokenSet bool `json:"token_set"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("stdout=%s err=%v", stdout, err)
+	}
+	if !payload.TokenSet {
+		t.Fatalf("payload=%#v", payload)
+	}
+
+	stdout, stderr, code = runCLI(t, []string{
+		"--config", configPath,
+		"--base-url", "https://different-screenote.test",
+		"config",
+	}, "")
+	if code != ExitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("stdout=%s err=%v", stdout, err)
+	}
+	if payload.TokenSet {
+		t.Fatalf("stored login for a different base URL should not be reported as configured: %#v", payload)
 	}
 }
 

@@ -15,6 +15,10 @@ func (a *app) configCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			storedLoginSet := resolved.Login != nil &&
+				resolved.Login.AccessToken != "" &&
+				(resolved.Login.BaseURL == "" || resolved.BaseURL == "" || sameBaseURL(resolved.Login.BaseURL, resolved.BaseURL))
+			tokenSet := resolved.Token != "" || storedLoginSet
 			return writeJSON(a.stdout, struct {
 				BaseURL  string            `json:"base_url,omitempty"`
 				Project  string            `json:"project,omitempty"`
@@ -23,7 +27,7 @@ func (a *app) configCommand() *cobra.Command {
 			}{
 				BaseURL:  resolved.BaseURL,
 				Project:  resolved.Project,
-				TokenSet: resolved.Token != "",
+				TokenSet: tokenSet,
 				Sources:  resolved.Sources,
 			})
 		},
