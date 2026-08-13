@@ -521,6 +521,26 @@ func TestConfigMasksBearerToken(t *testing.T) {
 	}
 }
 
+func TestConfigReportsHostedBaseURLByDefault(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	stdout, stderr, code := runCLI(t, []string{"--config", configPath, "config"}, "")
+	if code != ExitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	var payload struct {
+		BaseURL string `json:"base_url"`
+		Sources struct {
+			BaseURL string `json:"base_url"`
+		} `json:"sources"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("stdout=%s err=%v", stdout, err)
+	}
+	if payload.BaseURL != appconfig.DefaultBaseURL || payload.Sources.BaseURL != "default" {
+		t.Fatalf("payload=%#v", payload)
+	}
+}
+
 func TestConfigReportsStoredOAuthLogin(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.toml")
 	if err := appconfig.Save(configPath, appconfig.Values{

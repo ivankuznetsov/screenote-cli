@@ -9,7 +9,10 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-const DefaultConfigPath = "~/.config/screenote/config.toml"
+const (
+	DefaultConfigPath = "~/.config/screenote/config.toml"
+	DefaultBaseURL    = "https://screenote.ai"
+)
 
 type Values struct {
 	Token   string            `toml:"token" json:"token,omitempty"`
@@ -91,6 +94,11 @@ func Resolve(options Options) (Resolved, error) {
 	apply(options.Flags.Token, "flag", &resolved.Token, &resolved.Sources.Token)
 	apply(options.Flags.BaseURL, "flag", &resolved.BaseURL, &resolved.Sources.BaseURL)
 	apply(options.Flags.Project, "flag", &resolved.Project, &resolved.Sources.Project)
+
+	if resolved.BaseURL == "" {
+		resolved.BaseURL = DefaultBaseURL
+		resolved.Sources.BaseURL = "default"
+	}
 
 	return resolved, nil
 }

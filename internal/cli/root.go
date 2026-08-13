@@ -92,9 +92,6 @@ func (a *app) client(ctx context.Context) (*screenote.Client, appconfig.Resolved
 	if err != nil {
 		return nil, resolved, err
 	}
-	if resolved.BaseURL == "" {
-		return nil, resolved, usageError("missing_base_url", "base URL is required; set --base-url, SCREENOTE_BASE_URL, or config base_url")
-	}
 	if resolved.Token == "" {
 		token, err := a.storedLoginToken(ctx, resolved)
 		if err != nil {

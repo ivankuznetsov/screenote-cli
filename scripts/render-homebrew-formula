@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if (($# != 3)); then
+  printf 'usage: %s <vMAJOR.MINOR.PATCH> <checksums.txt> <output.rb>\n' "$0" >&2
+  exit 2
+fi
+
+tag=$1
+checksums_file=$2
+output_file=$3
+version=${tag#v}
+
+if [[ $tag != "v$version" || ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  printf 'invalid release tag: %s\n' "$tag" >&2
+  exit 2
+fi
+[[ -f $checksums_file ]] || { printf 'missing checksums file: %s\n' "$checksums_file" >&2; exit 2; }
+
+checksum_for() {
+  local filename=$1 checksum
+  checksum=$(awk -v file="$filename" '$2 == file || $2 == "./" file { print $1; exit }' "$checksums_file")
+  [[ $checksum =~ ^[0-9a-f]{64}$ ]] || { printf 'missing or invalid checksum for %s\n' "$filename" >&2; exit 1; }
+  printf '%s' "$checksum"
+}
+
+darwin_amd64=$(checksum_for "screenote_${version}_darwin_amd64.tar.gz")
+darwin_arm64=$(checksum_for "screenote_${version}_darwin_arm64.tar.gz")
+linux_amd64=$(checksum_for "screenote_${version}_linux_amd64.tar.gz")
+linux_arm64=$(checksum_for "screenote_${version}_linux_arm64.tar.gz")
+
+mkdir -p "$(dirname "$output_file")"
+cat >"$output_file" <<FORMULA
+class Screenote < Formula
+  desc "Command-line client for Screenote visual feedback workflows"
+  homepage "https://screenote.ai"
+  version "$version"
+  license "MIT"
+
+  on_macos do
+    on_arm do
+      url "https://github.com/ivankuznetsov/screenote-cli/releases/download/$tag/screenote_${version}_darwin_arm64.tar.gz"
+      sha256 "$darwin_arm64"
+    end
+    on_intel do
+      url "https://github.com/ivankuznetsov/screenote-cli/releases/download/$tag/screenote_${version}_darwin_amd64.tar.gz"
+      sha256 "$darwin_amd64"
+    end
+  end
+
+  on_linux do
+    on_arm do
+      url "https://github.com/ivankuznetsov/screenote-cli/releases/download/$tag/screenote_${version}_linux_arm64.tar.gz"
+      sha256 "$linux_arm64"
+    end
+    on_intel do
+      url "https://github.com/ivankuznetsov/screenote-cli/releases/download/$tag/screenote_${version}_linux_amd64.tar.gz"
+      sha256 "$linux_amd64"
+    end
+  end
+
+  def install
+    bin.install "screenote"
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/screenote version")
+  end
+end
+FORMULA

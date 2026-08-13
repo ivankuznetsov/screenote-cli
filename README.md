@@ -4,7 +4,19 @@ The public command-line client for [Screenote](https://screenote.ai), a visual f
 
 ## Install
 
-On Omarchy or another Arch-based system, install the package through the AUR:
+On macOS, install the latest release with Homebrew:
+
+```sh
+brew install ivankuznetsov/tap/screenote
+```
+
+On macOS or Linux, install the checksum-verified release binary directly:
+
+```sh
+curl -fsSL https://screenote.ai/install.sh | sh
+```
+
+On Omarchy or another Arch-based system, you can also install the package through the AUR:
 
 ```sh
 omarchy pkg aur add screenote-cli-git
@@ -14,21 +26,20 @@ The package provides `/usr/bin/screenote` and follows the latest CLI `main`
 branch. Its reviewed `PKGBUILD` is maintained in
 [`packaging/aur/screenote-cli-git`](packaging/aur/screenote-cli-git).
 
-For source development, Go 1.26 or newer can install the latest version
-directly:
+For source development, Go 1.26 or newer can build or install the latest source directly:
 
 ```sh
 go install github.com/ivankuznetsov/screenote-cli/cmd/screenote@latest
 ```
 
-GitHub Release binaries and Homebrew installation will be available with the first public release.
+Tagged GitHub releases provide prebuilt macOS and Linux binaries for AMD64 and ARM64 with SHA-256 checksums.
 
 ## Authenticate
 
 Use OAuth login from a machine with a browser:
 
 ```sh
-screenote --base-url https://screenote.ai login
+screenote login
 screenote logout
 ```
 
@@ -37,7 +48,7 @@ If a browser cannot open, the CLI writes a JSON object containing `authorization
 For SSH, tmux, containers, and other headless sessions, use OAuth device authorization instead. The CLI prints a short code and URL, waits while you approve the request in any browser, and then stores the same refreshable OAuth credentials as interactive login:
 
 ```sh
-screenote --base-url https://screenote.ai login --device
+screenote login --device
 ```
 
 The device-login prompt is JSON on stderr, so agents can read it without exposing OAuth access or refresh credentials:
@@ -46,7 +57,7 @@ The device-login prompt is JSON on stderr, so agents can read it without exposin
 {"event":"device_authorization","authorization_url":"https://screenote.ai/oauth/device?user_code=ABCDE-FGHIJ","verification_uri":"https://screenote.ai/oauth/device","user_code":"ABCDE-FGHIJ","expires_in":600,"interval":5}
 ```
 
-OAuth credentials are stored in `~/.config/screenote/config.toml` with file mode `0600` and refreshed automatically. Use `screenote logout` to remove them. Server and project configuration can still come from `--base-url` / `--project`, `SCREENOTE_BASE_URL` / `SCREENOTE_PROJECT`, or the config file.
+OAuth credentials are stored in `~/.config/screenote/config.toml` with file mode `0600` and refreshed automatically. Use `screenote logout` to remove them. The CLI defaults to `https://screenote.ai`; self-hosted server and project configuration can still come from `--base-url` / `--project`, `SCREENOTE_BASE_URL` / `SCREENOTE_PROJECT`, or the config file.
 
 Ordinary commands never prompt or open a browser. Project-scoped commands require `--project`, `SCREENOTE_PROJECT`, or config `project`.
 
@@ -79,7 +90,7 @@ The command validates and hashes the complete manifest locally before making a r
 Successful commands write JSON to stdout. Errors write JSON to stderr:
 
 ```json
-{"code":"missing_base_url","error":"base URL is required; set --base-url, SCREENOTE_BASE_URL, or config base_url"}
+{"code":"missing_project","error":"project is required; set --project, SCREENOTE_PROJECT, or config project"}
 ```
 
 | Exit code | Meaning |
