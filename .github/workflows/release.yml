@@ -27,6 +27,12 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Test installer
+        run: tests/install.sh
+
+      - name: Test Homebrew formula rendering
+        run: tests/homebrew.sh
+
   build:
     needs: test
     runs-on: ubuntu-latest
@@ -83,11 +89,17 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout release source
+        uses: actions/checkout@v6
+
       - name: Download release archives
         uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+
+      - name: Add installer
+        run: cp scripts/install.sh dist/install.sh
 
       - name: Create checksums
         shell: bash
@@ -112,3 +124,35 @@ jobs:
     with:
       tag: ${{ github.ref_name }}
     secrets: inherit
+
+  publish-homebrew:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout CLI release source
+        uses: actions/checkout@v6
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v6
+        with:
+          repository: ivankuznetsov/homebrew-tap
+          ssh-key: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}
+          path: dist/homebrew-tap
+
+      - name: Download release checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "${GITHUB_REF_NAME}" --pattern checksums.txt --dir dist
+
+      - name: Render and publish formula
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          scripts/render-homebrew-formula "$RELEASE_TAG" dist/checksums.txt dist/homebrew-tap/Formula/screenote.rb
+          cd dist/homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/screenote.rb
+          git diff --cached --quiet && exit 0
+          git commit -m "screenote $RELEASE_TAG"
+          git push

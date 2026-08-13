@@ -46,9 +46,6 @@ func (a *app) loginCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if resolved.BaseURL == "" {
-				return usageError("missing_base_url", "base URL is required; set --base-url, SCREENOTE_BASE_URL, or config base_url")
-			}
 			var credentials *appconfig.LoginCredentials
 			if device {
 				credentials, err = a.runDeviceLogin(cmd.Context(), resolved.BaseURL)

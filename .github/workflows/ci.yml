@@ -27,6 +27,12 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Test installer
+        run: tests/install.sh
+
+      - name: Test Homebrew formula rendering
+        run: tests/homebrew.sh
+
       - name: Cross-compile CLI
         shell: bash
         run: |

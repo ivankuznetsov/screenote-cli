@@ -62,6 +62,34 @@ func TestResolveTokenSources(t *testing.T) {
 	}
 }
 
+func TestResolveDefaultsToHostedScreenote(t *testing.T) {
+	resolved, err := Resolve(Options{
+		ConfigPath: filepath.Join(t.TempDir(), "missing.toml"),
+		Env:        map[string]string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.BaseURL != DefaultBaseURL || resolved.Sources.BaseURL != "default" {
+		t.Fatalf("base url = %q from %q", resolved.BaseURL, resolved.Sources.BaseURL)
+	}
+}
+
+func TestResolveBaseURLOverridesHostedDefault(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := Save(path, Values{BaseURL: "https://self-hosted.example"}); err != nil {
+		t.Fatal(err)
+	}
+
+	resolved, err := Resolve(Options{ConfigPath: path, Env: map[string]string{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.BaseURL != "https://self-hosted.example" || resolved.Sources.BaseURL != "config" {
+		t.Fatalf("base url = %q from %q", resolved.BaseURL, resolved.Sources.BaseURL)
+	}
+}
+
 func TestResolveIgnoresLegacyAPIKeySources(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	if err := os.WriteFile(path, []byte("api_key = \"legacy\"\n"), 0o600); err != nil {
