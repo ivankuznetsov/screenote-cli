@@ -45,6 +45,26 @@ output=$(SCREENOTE_VERSION="$version" \
 [[ $("$install_dir/screenote") == "screenote $version" ]]
 [[ $output == *"Next: screenote login"* ]]
 
+printf '#!/bin/sh\nprintf "screenote preserved\\n"\n' >"$install_dir/screenote"
+chmod 755 "$install_dir/screenote"
+fake_bin="$test_root/fake-bin"
+mkdir -p "$fake_bin"
+printf '#!/bin/sh\nexit 23\n' >"$fake_bin/install"
+chmod 755 "$fake_bin/install"
+
+set +e
+output=$(SCREENOTE_VERSION="$version" \
+  SCREENOTE_DOWNLOAD_BASE="file://$test_root/releases" \
+  SCREENOTE_INSTALL_DIR="$install_dir" \
+  PATH="$fake_bin:$PATH" \
+  sh "$repo_dir/scripts/install.sh" 2>&1)
+status=$?
+set -e
+
+[[ $status -ne 0 ]]
+[[ $("$install_dir/screenote") == "screenote preserved" ]]
+[[ -z $(find "$install_dir" -maxdepth 1 -name '.screenote.*' -print -quit) ]]
+
 printf '0%.0s' {1..64} >"$release_dir/checksums.txt"
 printf '  %s\n' "$archive" >>"$release_dir/checksums.txt"
 rm -f "$install_dir/screenote"

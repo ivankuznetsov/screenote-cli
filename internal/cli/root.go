@@ -20,6 +20,8 @@ type app struct {
 	stdout               io.Writer
 	stderr               io.Writer
 	httpClient           *http.Client
+	updateService        cliUpdateService
+	automaticUpdateCheck bool
 	snapshotPollInterval time.Duration
 	snapshotPollJitter   func(time.Duration) time.Duration
 	flags                appconfig.Values
@@ -29,7 +31,10 @@ type app struct {
 }
 
 func Execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	a := &app{stdin: stdin, stdout: stdout, stderr: stderr}
+	a := &app{
+		stdin: stdin, stdout: stdout, stderr: stderr,
+		automaticUpdateCheck: automaticUpdateCheckEnabled(stderr),
+	}
 	cmd := a.rootCommand(ctx)
 	cmd.SetArgs(args)
 	if err := cmd.ExecuteContext(ctx); err != nil {
@@ -49,12 +54,13 @@ func NewTestCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Writ
 
 func (a *app) rootCommand(_ context.Context) *cobra.Command {
 	root := &cobra.Command{
-		Use:           "screenote",
-		Short:         "Screenote REST CLI",
-		Args:          rejectArgs,
-		RunE:          showHelp,
-		SilenceUsage:  true,
-		SilenceErrors: true,
+		Use:                "screenote",
+		Short:              "Screenote REST CLI",
+		Args:               rejectArgs,
+		RunE:               showHelp,
+		PersistentPostRunE: func(cmd *cobra.Command, _ []string) error { a.maybeSuggestUpdate(cmd); return nil },
+		SilenceUsage:       true,
+		SilenceErrors:      true,
 	}
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
 		return usageError("invalid_flag", err.Error())
@@ -67,6 +73,7 @@ func (a *app) rootCommand(_ context.Context) *cobra.Command {
 
 	root.AddCommand(
 		a.versionCommand(),
+		a.updateCommand(),
 		a.configCommand(),
 		a.loginCommand(),
 		a.logoutCommand(),

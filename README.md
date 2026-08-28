@@ -34,6 +34,34 @@ go install github.com/ivankuznetsov/screenote-cli/cmd/screenote@latest
 
 Tagged GitHub releases provide prebuilt macOS and Linux binaries for AMD64 and ARM64 with SHA-256 checksums.
 
+## Update
+
+Check whether a newer stable release is available without changing the installation:
+
+```sh
+screenote update --check
+```
+
+Install the latest release:
+
+```sh
+screenote update
+```
+
+Homebrew installs are upgraded through Homebrew. Direct installs download the
+published release installer to a temporary file, verify its GitHub-published
+SHA-256 digest, pin it to the selected release, and reinstall into the current
+binary directory. Known package-managed locations (Homebrew, `/usr/bin`, Nix,
+Snap, and MacPorts) remain owned by their package manager so the CLI does not
+overwrite managed files.
+
+After a successful interactive command, the CLI checks for a newer release at
+most once every 24 hours and prints an update suggestion to stderr at most once
+per 24 hours. The check has a two-second deadline, is skipped for non-terminal
+and CI invocations, and never changes the command's exit status. Set
+`SCREENOTE_NO_UPDATE_CHECK=1` to disable automatic checks. Explicit
+`screenote update` and `screenote update --check` commands still work.
+
 ## Authenticate
 
 Use OAuth login from a machine with a browser:
@@ -75,6 +103,8 @@ screenote --project 7 annotation get --annotation 456
 screenote --project 7 annotation get --annotation 456 --crop-file annotation-456.png
 screenote --project 7 annotation resolve --annotation 456 --comment "Fixed in abc123"
 screenote --project 7 comment add --annotation 456 --body "Fix pushed in abc123"
+screenote update --check
+screenote update
 ```
 
 `annotation get --crop-file PATH` decodes the annotation crop to a private local PNG (mode `0600`). Its JSON output includes `crop_file` and omits `cropped_image_base64`; without the flag, the API response is printed unchanged.
