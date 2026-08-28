@@ -38,7 +38,31 @@ archive="screenote_${version}_${os}_${arch}.tar.gz"
 release_url="$download_base/v$version"
 tmp_root="${TMPDIR:-/tmp}"
 tmp_dir="$(mktemp -d "$tmp_root/screenote-install.XXXXXX")"
-trap 'rm -rf "$tmp_dir"' EXIT HUP INT TERM
+stage_path=""
+stage_uses_sudo=0
+
+cleanup() {
+  trap - EXIT HUP INT TERM
+  if [ -n "$stage_path" ]; then
+    if [ "$stage_uses_sudo" -eq 1 ]; then
+      sudo rm -f "$stage_path" >/dev/null 2>&1 || :
+    else
+      rm -f "$stage_path" || :
+    fi
+  fi
+  rm -rf "$tmp_dir" || :
+}
+
+finish() {
+  status=$?
+  cleanup
+  exit "$status"
+}
+
+trap finish EXIT
+trap 'cleanup; exit 129' HUP
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
 
 curl -fsSL "$release_url/$archive" -o "$tmp_dir/$archive"
 curl -fsSL "$release_url/checksums.txt" -o "$tmp_dir/checksums.txt"
@@ -80,10 +104,17 @@ if [ -z "$install_dir" ]; then
 fi
 
 if mkdir -p "$install_dir" 2>/dev/null && [ -w "$install_dir" ]; then
-  install -m 0755 "$tmp_dir/screenote" "$install_dir/screenote"
+  stage_path="$(mktemp "$install_dir/.screenote.XXXXXX")"
+  install -m 0755 "$tmp_dir/screenote" "$stage_path"
+  mv -f "$stage_path" "$install_dir/screenote"
+  stage_path=""
 elif command -v sudo >/dev/null 2>&1; then
   sudo install -d -m 0755 "$install_dir"
-  sudo install -m 0755 "$tmp_dir/screenote" "$install_dir/screenote"
+  stage_path="$(sudo mktemp "$install_dir/.screenote.XXXXXX")"
+  stage_uses_sudo=1
+  sudo install -m 0755 "$tmp_dir/screenote" "$stage_path"
+  sudo mv -f "$stage_path" "$install_dir/screenote"
+  stage_path=""
 else
   fail "cannot write to $install_dir; set SCREENOTE_INSTALL_DIR to a writable directory on PATH"
 fi
