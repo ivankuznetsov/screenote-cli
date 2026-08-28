@@ -10,7 +10,8 @@ tag="$1"
 version="${tag#v}"
 output_dir="$2"
 repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-template="$repo_dir/packaging/aur/screenote-cli/PKGBUILD.in"
+package_dir="$repo_dir/packaging/aur/screenote-cli"
+template="$package_dir/PKGBUILD.in"
 
 if [[ $tag != v* || ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   printf 'render-aur-package: tag must use vMAJOR.MINOR.PATCH\n' >&2
@@ -29,6 +30,7 @@ curl --fail --silent --show-error --location --retry 3 \
 checksum=$(sha256sum "$archive" | cut -d' ' -f1)
 
 mkdir -p "$output_dir"
+cp "$package_dir/.gitignore" "$output_dir/.gitignore"
 sed \
   -e "s/@VERSION@/${version}/g" \
   -e "s/@SHA256@/${checksum}/g" \

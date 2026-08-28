@@ -33,6 +33,9 @@ jobs:
       - name: Test Homebrew formula rendering
         run: tests/homebrew.sh
 
+      - name: Test AUR package rendering
+        run: tests/aur.sh
+
       - name: Cross-compile CLI
         shell: bash
         run: |
