@@ -1,5 +1,18 @@
 package screenote
 
+import "io"
+
+const ImageCommentsCapability = "image-comments-v1"
+
+// ImageCommentUpload is one replayable multipart image body. Callers reopen
+// their immutable source for each AddImageComment attempt.
+type ImageCommentUpload struct {
+	Filename    string
+	ContentType string
+	SHA256      string
+	Body        io.Reader
+}
+
 type Project struct {
 	ID              int    `json:"id"`
 	Name            string `json:"name"`

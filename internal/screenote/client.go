@@ -33,6 +33,7 @@ type Error struct {
 	StatusCode int
 	Code       string
 	Message    string
+	Capability string
 }
 
 func (e *Error) Error() string {
@@ -232,6 +233,64 @@ func (c *Client) AddComment(ctx context.Context, annotation, project, body strin
 	return c.doJSON(ctx, http.MethodPost, "/api/v1/annotations/"+url.PathEscape(annotation)+"/comments", nil, headers, nil, strings.NewReader(form.Encode()))
 }
 
+func (c *Client) AddImageComment(ctx context.Context, annotation, project, body, idempotencyKey string, image ImageCommentUpload) (json.RawMessage, error) {
+	pr, pw := io.Pipe()
+	writer := multipart.NewWriter(pw)
+	if err := writer.SetBoundary("screenote-" + idempotencyKey); err != nil {
+		_ = pr.Close()
+		_ = pw.Close()
+		return nil, err
+	}
+	headers := map[string]string{
+		"Content-Type":           writer.FormDataContentType(),
+		"Idempotency-Key":        idempotencyKey,
+		"Screenote-Image-SHA256": image.SHA256,
+	}
+
+	go func() {
+		var err error
+		defer func() {
+			closeErr := writer.Close()
+			if err == nil {
+				err = closeErr
+			}
+			_ = pw.CloseWithError(err)
+		}()
+
+		if project != "" {
+			if err = writer.WriteField("project_id", project); err != nil {
+				return
+			}
+		}
+		if err = writer.WriteField("body", body); err != nil {
+			return
+		}
+
+		header := make(textproto.MIMEHeader)
+		header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="images[]"; filename="%s"`, escapeQuotes(path.Base(image.Filename))))
+		header.Set("Content-Type", image.ContentType)
+		var part io.Writer
+		part, err = writer.CreatePart(header)
+		if err != nil {
+			return
+		}
+		_, err = io.Copy(part, image.Body)
+	}()
+
+	defer pr.Close()
+	return c.doJSONWithClientAndLength(
+		ctx,
+		c.uploadHTTPClient,
+		http.MethodPost,
+		"/api/v1/annotations/"+url.PathEscape(annotation)+"/image_comments",
+		nil,
+		headers,
+		nil,
+		pr,
+		-1,
+	)
+}
+
 func Query(params map[string]string) url.Values {
 	values := url.Values{}
 	for key, value := range params {
@@ -291,7 +350,11 @@ func (c *Client) doJSONWithClientAndLength(ctx context.Context, httpClient *http
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return raw, parseError(resp.StatusCode, raw)
+		err := parseError(resp.StatusCode, raw)
+		if apiErr, ok := err.(*Error); ok {
+			apiErr.Capability = resp.Header.Get("Screenote-API-Capability")
+		}
+		return raw, err
 	}
 	if out != nil && len(raw) > 0 {
 		if err := json.Unmarshal(raw, out); err != nil {
