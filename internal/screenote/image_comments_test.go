@@ -76,6 +76,40 @@ func TestClientAddImageCommentUsesDedicatedMultipartContract(t *testing.T) {
 	}
 }
 
+func TestClientAddImageCommentRejectsInvalidSuccessResponses(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "empty"},
+		{name: "malformed", body: `{"operation":`},
+		{name: "unknown operation", body: `{"operation":"finished","comment":{"id":11},"attachment":{"id":12}}`},
+		{name: "missing comment", body: `{"operation":"created","attachment":{"id":12}}`},
+		{name: "missing attachment", body: `{"operation":"created","comment":{"id":11}}`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body)
+				_, _ = w.Write([]byte(test.body))
+			}))
+			defer server.Close()
+
+			client, err := NewClient(server.URL, "test-token", server.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.AddImageComment(context.Background(), "5", "7", "body", "0123456789abcdef", ImageCommentUpload{
+				Filename: "attachment.png", ContentType: "image/png", SHA256: strings.Repeat("0", 64), Body: strings.NewReader("png"),
+			})
+			if err == nil {
+				t.Fatal("invalid success response was accepted")
+			}
+		})
+	}
+}
+
 func TestClientErrorRecordsImageCommentCapability(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Screenote-API-Capability", ImageCommentsCapability)

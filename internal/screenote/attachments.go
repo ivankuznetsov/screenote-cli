@@ -13,6 +13,44 @@ import (
 
 const maxAttachmentErrorBytes int64 = 64 << 10
 
+type imageAttachmentFormat struct {
+	mediaType string
+	extension string
+	matches   func([]byte) bool
+}
+
+var imageAttachmentFormats = [...]imageAttachmentFormat{
+	{mediaType: "image/png", extension: "png", matches: func(prefix []byte) bool {
+		return len(prefix) >= 8 && string(prefix[:8]) == "\x89PNG\r\n\x1a\n"
+	}},
+	{mediaType: "image/jpeg", extension: "jpg", matches: func(prefix []byte) bool {
+		return len(prefix) >= 3 && prefix[0] == 0xff && prefix[1] == 0xd8 && prefix[2] == 0xff
+	}},
+	{mediaType: "image/webp", extension: "webp", matches: func(prefix []byte) bool {
+		return len(prefix) >= 12 && string(prefix[:4]) == "RIFF" && string(prefix[8:12]) == "WEBP"
+	}},
+}
+
+// DetectImageAttachmentFormat identifies the image policy shared by comment
+// uploads and private attachment downloads.
+func DetectImageAttachmentFormat(prefix []byte) (mediaType, extension string) {
+	for _, format := range imageAttachmentFormats {
+		if format.matches(prefix) {
+			return format.mediaType, format.extension
+		}
+	}
+	return "", ""
+}
+
+func ImageAttachmentExtension(mediaType string) string {
+	for _, format := range imageAttachmentFormats {
+		if format.mediaType == mediaType {
+			return format.extension
+		}
+	}
+	return ""
+}
+
 // AttachmentDownloadError reports a safe, token-free validation failure.
 type AttachmentDownloadError struct {
 	Code string
@@ -33,14 +71,14 @@ func (e *AttachmentDownloadError) Error() string {
 // attachment on this client's configured origin. It performs no network I/O.
 func (c *Client) ValidateAttachment(metadata AttachmentMetadata) error {
 	if metadata.ID <= 0 || metadata.Size <= 0 || metadata.Size > MaxImageAttachmentBytes ||
-		!supportedAttachmentMediaType(metadata.MediaType) {
+		ImageAttachmentExtension(metadata.MediaType) == "" {
 		return &AttachmentDownloadError{Code: "invalid_attachment_data"}
 	}
 
 	mediaURL, err := url.Parse(metadata.URL)
 	if err != nil || mediaURL.Scheme == "" || mediaURL.Host == "" || mediaURL.Opaque != "" ||
 		mediaURL.User != nil || mediaURL.Fragment != "" || mediaURL.ForceQuery || mediaURL.RawPath != "" ||
-		mediaURL.Scheme != c.baseURL.Scheme || mediaURL.Host != c.baseURL.Host {
+		!sameOrigin(mediaURL, c.baseURL) {
 		return &AttachmentDownloadError{Code: "invalid_attachment_url"}
 	}
 	expectedPath := strings.TrimRight(c.baseURL.Path, "/") + "/api/media/image_attachments/" + strconv.Itoa(metadata.ID)
@@ -56,6 +94,26 @@ func (c *Client) ValidateAttachment(metadata AttachmentMetadata) error {
 		return &AttachmentDownloadError{Code: "invalid_attachment_url"}
 	}
 	return nil
+}
+
+func sameOrigin(left, right *url.URL) bool {
+	return strings.EqualFold(left.Scheme, right.Scheme) &&
+		strings.EqualFold(left.Hostname(), right.Hostname()) &&
+		effectivePort(left) == effectivePort(right)
+}
+
+func effectivePort(value *url.URL) string {
+	if port := value.Port(); port != "" {
+		return port
+	}
+	switch strings.ToLower(value.Scheme) {
+	case "http":
+		return "80"
+	case "https":
+		return "443"
+	default:
+		return ""
+	}
 }
 
 // DownloadAttachment streams one already-validated private attachment without
@@ -122,19 +180,7 @@ func (c *Client) DownloadAttachment(ctx context.Context, metadata AttachmentMeta
 	return nil
 }
 
-func supportedAttachmentMediaType(mediaType string) bool {
-	return mediaType == "image/png" || mediaType == "image/jpeg" || mediaType == "image/webp"
-}
-
 func matchesAttachmentSignature(mediaType string, prefix []byte) bool {
-	switch mediaType {
-	case "image/png":
-		return len(prefix) >= 8 && string(prefix[:8]) == "\x89PNG\r\n\x1a\n"
-	case "image/jpeg":
-		return len(prefix) >= 3 && prefix[0] == 0xff && prefix[1] == 0xd8 && prefix[2] == 0xff
-	case "image/webp":
-		return len(prefix) >= 12 && string(prefix[:4]) == "RIFF" && string(prefix[8:12]) == "WEBP"
-	default:
-		return false
-	}
+	detected, _ := DetectImageAttachmentFormat(prefix)
+	return detected == mediaType
 }

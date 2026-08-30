@@ -1,10 +1,7 @@
 package cli
 
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -90,9 +87,6 @@ func exportAnnotationAttachments(
 				return nil, usageError("output_collision", "--crop-file conflicts with an attachment output file")
 			}
 		}
-		if err := crop.stage(); err != nil {
-			return nil, err
-		}
 	}
 
 	committed := false
@@ -107,7 +101,7 @@ func exportAnnotationAttachments(
 		for {
 			if attachmentExpiresSoon(item.current, time.Now()) {
 				if err := detail.refreshLocators(
-					ctx, client, annotationID, project, index, item, &refreshes,
+					ctx, client, annotationID, project, index, &refreshes,
 				); err != nil {
 					return nil, err
 				}
@@ -117,7 +111,7 @@ func exportAnnotationAttachments(
 			err := directory.stage(ctx, client, item)
 			if isAttachmentNotFound(err) {
 				if err := detail.refreshLocators(
-					ctx, client, annotationID, project, index, item, &refreshes,
+					ctx, client, annotationID, project, index, &refreshes,
 				); err != nil {
 					return nil, err
 				}
@@ -127,6 +121,11 @@ func exportAnnotationAttachments(
 				return nil, attachmentDownloadError(ctx, err)
 			}
 			break
+		}
+	}
+	if crop != nil {
+		if err := crop.stage(); err != nil {
+			return nil, err
 		}
 	}
 
@@ -226,16 +225,15 @@ func parseAttachmentDetail(raw json.RawMessage) (*attachmentDetail, error) {
 }
 
 func parseObjectArray(raw json.RawMessage) ([]rawObject, error) {
-	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		return nil, errors.New("null array")
-	}
-	var entries []json.RawMessage
-	if err := json.Unmarshal(raw, &entries); err != nil {
+	var objects []rawObject
+	if err := json.Unmarshal(raw, &objects); err != nil {
 		return nil, err
 	}
-	objects := make([]rawObject, len(entries))
-	for index, entry := range entries {
-		if err := json.Unmarshal(entry, &objects[index]); err != nil || objects[index] == nil {
+	if objects == nil {
+		return nil, errors.New("null array")
+	}
+	for _, object := range objects {
+		if object == nil {
 			return nil, errors.New("invalid object")
 		}
 	}
@@ -288,7 +286,7 @@ func parseAttachmentMetadata(object rawObject) (screenote.AttachmentMetadata, er
 	if metadata.ID <= 0 || metadata.Width <= 0 || metadata.Height <= 0 ||
 		metadata.Width > 32_768 || metadata.Height > 32_768 || int64(metadata.Width)*int64(metadata.Height) > 50_000_000 ||
 		metadata.Size <= 0 ||
-		metadata.Size > screenote.MaxImageAttachmentBytes || attachmentExtension(metadata.MediaType) == "" {
+		metadata.Size > screenote.MaxImageAttachmentBytes || screenote.ImageAttachmentExtension(metadata.MediaType) == "" {
 		return screenote.AttachmentMetadata{}, genericError("invalid_attachment_metadata", "annotation attachment metadata is invalid")
 	}
 	if _, err := time.Parse(time.RFC3339, metadata.URLExpiresAt); err != nil {
@@ -398,11 +396,11 @@ func (directory *privateAttachmentDirectory) stage(ctx context.Context, client *
 
 func (directory *privateAttachmentDirectory) createTemporary() (*os.File, string, error) {
 	for range 16 {
-		var entropy [12]byte
-		if _, err := rand.Read(entropy[:]); err != nil {
+		token, err := screenote.RandomToken(12)
+		if err != nil {
 			return nil, "", err
 		}
-		name := ".screenote-attachment-" + base64.RawURLEncoding.EncodeToString(entropy[:])
+		name := ".screenote-attachment-" + token
 		file, err := directory.root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err == nil {
 			return file, name, nil
@@ -442,7 +440,6 @@ func (detail *attachmentDetail) refreshLocators(
 	client *screenote.Client,
 	annotationID, project string,
 	pendingStart int,
-	trigger *attachmentExportItem,
 	refreshes *int,
 ) error {
 	if *refreshes >= len(detail.items)+1 {
@@ -473,6 +470,7 @@ func (detail *attachmentDetail) refreshLocators(
 		}
 		candidates[index] = candidate
 	}
+	trigger := detail.items[pendingStart]
 	triggerCandidate := byID[trigger.original.ID]
 	if triggerCandidate.URL == trigger.current.URL && triggerCandidate.URLExpiresAt == trigger.current.URLExpiresAt {
 		return genericError("attachment_refresh_failed", "attachment media refresh made no progress")
@@ -514,7 +512,7 @@ func attachmentValidationError(err error) error {
 }
 
 func attachmentDownloadError(ctx context.Context, err error) error {
-	if isCanceled(ctx, err) {
+	if callerCanceled(ctx) {
 		return genericError("request_canceled", "attachment download was canceled")
 	}
 	var cliErr *cliError
@@ -534,7 +532,7 @@ func attachmentDownloadError(ctx context.Context, err error) error {
 }
 
 func attachmentRefreshError(ctx context.Context, err error) error {
-	if isCanceled(ctx, err) {
+	if callerCanceled(ctx) {
 		return genericError("request_canceled", "attachment refresh was canceled")
 	}
 	var apiErr *screenote.Error
@@ -549,21 +547,8 @@ func attachmentRefreshError(ctx context.Context, err error) error {
 	return genericError("attachment_refresh_failed", "attachment media could not be refreshed safely")
 }
 
-func attachmentExtension(mediaType string) string {
-	switch mediaType {
-	case "image/png":
-		return "png"
-	case "image/jpeg":
-		return "jpg"
-	case "image/webp":
-		return "webp"
-	default:
-		return ""
-	}
-}
-
 func attachmentFilename(metadata screenote.AttachmentMetadata) string {
-	return "attachment-" + strconv.Itoa(metadata.ID) + "." + attachmentExtension(metadata.MediaType)
+	return "attachment-" + strconv.Itoa(metadata.ID) + "." + screenote.ImageAttachmentExtension(metadata.MediaType)
 }
 
 func sameFilesystemPath(left, right string) bool {

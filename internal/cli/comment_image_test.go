@@ -278,17 +278,59 @@ func TestCommentAddImageReportsUnknownAfterTwoAmbiguousResponses(t *testing.T) {
 	}
 }
 
+func TestCommentAddImageRetriesMalformedSuccessWithSameKey(t *testing.T) {
+	_, image := cropPNG(t)
+	var calls atomic.Int32
+	var keys []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		keys = append(keys, r.Header.Get("Idempotency-Key"))
+		if calls.Add(1) == 1 {
+			_, _ = w.Write([]byte(`{"operation":`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"operation":"replayed","comment":{"id":11},"attachment":{"id":12}}`))
+	}))
+	defer server.Close()
+
+	stdout, stderr, code := runCLI(t, []string{"--base-url", server.URL, "--token", "key", "--project", "7", "comment", "add", "--annotation", "5", "--body", "body", "--image", "-"}, string(image))
+	if code != ExitOK || stderr != "" || !strings.Contains(stdout, `"operation":"replayed"`) || calls.Load() != 2 {
+		t.Fatalf("code=%d stdout=%s stderr=%s calls=%d", code, stdout, stderr, calls.Load())
+	}
+	if len(keys) != 2 || keys[0] == "" || keys[0] != keys[1] {
+		t.Fatalf("keys = %q", keys)
+	}
+}
+
+func TestCommentAddImageReportsUnknownAfterTwoInvalidSuccesses(t *testing.T) {
+	_, image := cropPNG(t)
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = w.Write([]byte(`{"operation":"created","comment":{"id":11}}`))
+	}))
+	defer server.Close()
+
+	stdout, stderr, code := runCLI(t, []string{"--base-url", server.URL, "--token", "key", "--project", "7", "comment", "add", "--annotation", "5", "--body", "body", "--image", "-"}, string(image))
+	if stdout != "" || code != ExitGeneric || !strings.Contains(stderr, `"code":"comment_result_unknown"`) || calls.Load() != 2 {
+		t.Fatalf("code=%d stdout=%s stderr=%s calls=%d", code, stdout, stderr, calls.Load())
+	}
+}
+
 func TestCommentAddImageClassifiesMissingCapabilityOnly(t *testing.T) {
 	_, image := cropPNG(t)
 	tests := []struct {
 		name       string
+		status     int
 		capability bool
 		body       string
 		wantCode   string
 		wantExit   int
 	}{
-		{name: "old server", body: `{"error":"Not found","code":"not_found"}`, wantCode: "image_comments_unsupported", wantExit: ExitGeneric},
-		{name: "new server annotation missing", capability: true, body: `{"error":"Annotation not found","code":"annotation_not_found"}`, wantCode: "annotation_not_found", wantExit: ExitNotFound},
+		{name: "old server 404", status: http.StatusNotFound, body: `{"error":"Not found","code":"not_found"}`, wantCode: "image_comments_unsupported", wantExit: ExitGeneric},
+		{name: "old server 405", status: http.StatusMethodNotAllowed, body: `{"error":"Method not allowed","code":"http_405"}`, wantCode: "image_comments_unsupported", wantExit: ExitGeneric},
+		{name: "new server annotation missing", status: http.StatusNotFound, capability: true, body: `{"error":"Annotation not found","code":"annotation_not_found"}`, wantCode: "annotation_not_found", wantExit: ExitNotFound},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -296,7 +338,7 @@ func TestCommentAddImageClassifiesMissingCapabilityOnly(t *testing.T) {
 				if test.capability {
 					w.Header().Set("Screenote-API-Capability", screenote.ImageCommentsCapability)
 				}
-				w.WriteHeader(http.StatusNotFound)
+				w.WriteHeader(test.status)
 				_, _ = w.Write([]byte(test.body))
 			}))
 			defer server.Close()
@@ -304,6 +346,41 @@ func TestCommentAddImageClassifiesMissingCapabilityOnly(t *testing.T) {
 			_, stderr, code := runCLI(t, []string{"--base-url", server.URL, "--token", "key", "--project", "7", "comment", "add", "--annotation", "5", "--body", "body", "--image", "-"}, string(image))
 			if code != test.wantExit || !strings.Contains(stderr, `"code":"`+test.wantCode+`"`) {
 				t.Fatalf("code=%d stderr=%s", code, stderr)
+			}
+		})
+	}
+}
+
+func TestCommentAddImagePropagatesDeterministicErrorsOnce(t *testing.T) {
+	_, image := cropPNG(t)
+	tests := []struct {
+		name     string
+		status   int
+		body     string
+		wantCode string
+		wantExit int
+	}{
+		{name: "conflict", status: http.StatusConflict, body: `{"error":"Key conflict","code":"idempotency_conflict"}`, wantCode: "idempotency_conflict", wantExit: ExitGeneric},
+		{name: "validation", status: http.StatusUnprocessableEntity, body: `{"error":"Invalid image","code":"invalid_image"}`, wantCode: "invalid_image", wantExit: ExitGeneric},
+		{name: "rate limit", status: http.StatusTooManyRequests, body: `{"error":"Too many image uploads","code":"rate_limited"}`, wantCode: "rate_limited", wantExit: ExitRateLimited},
+		{name: "capability service unavailable", status: http.StatusServiceUnavailable, body: `{"error":"Image processor busy","code":"decoder_busy"}`, wantCode: "decoder_busy", wantExit: ExitGeneric},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				_, _ = io.Copy(io.Discard, r.Body)
+				w.Header().Set("Screenote-API-Capability", screenote.ImageCommentsCapability)
+				w.WriteHeader(test.status)
+				_, _ = w.Write([]byte(test.body))
+			}))
+			defer server.Close()
+
+			stdout, stderr, code := runCLI(t, []string{"--base-url", server.URL, "--token", "key", "--project", "7", "comment", "add", "--annotation", "5", "--body", "body", "--image", "-"}, string(image))
+			if stdout != "" || code != test.wantExit || !strings.Contains(stderr, `"code":"`+test.wantCode+`"`) || calls.Load() != 1 {
+				t.Fatalf("code=%d stdout=%s stderr=%s calls=%d", code, stdout, stderr, calls.Load())
 			}
 		})
 	}
@@ -324,23 +401,72 @@ func TestCommentAddImageDoesNotRetryCanceledContext(t *testing.T) {
 	}
 }
 
-func TestCommentAddImageGatewayRetriesOnce(t *testing.T) {
+func TestCommentAddImageRetriesClientTimeoutWithLiveContext(t *testing.T) {
 	_, image := cropPNG(t)
 	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	var keys []string
+	client := &http.Client{Transport: commentRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		keys = append(keys, request.Header.Get("Idempotency-Key"))
+		_, _ = io.Copy(io.Discard, request.Body)
 		if calls.Add(1) == 1 {
-			w.WriteHeader(http.StatusBadGateway)
-			_, _ = w.Write([]byte(`{"error":"Bad gateway","code":"http_502"}`))
-			return
+			return nil, context.DeadlineExceeded
 		}
-		w.Header().Set("Screenote-API-Capability", screenote.ImageCommentsCapability)
-		_, _ = w.Write([]byte(`{"operation":"replayed","comment":{"id":11},"attachment":{"id":12}}`))
-	}))
-	defer server.Close()
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"operation":"replayed","comment":{"id":11},"attachment":{"id":12}}`)),
+			Request:    request,
+		}, nil
+	})}
 
-	_, stderr, code := runCLI(t, []string{"--base-url", server.URL, "--token", "key", "--project", "7", "comment", "add", "--annotation", "5", "--body", "body", "--image", "-"}, string(image))
-	if code != ExitOK || stderr != "" || calls.Load() != 2 {
-		t.Fatalf("code=%d stderr=%s calls=%d", code, stderr, calls.Load())
+	stdout, stderr, code := runCLIWithContext(t, context.Background(), client, []string{"--base-url", "https://screenote.test", "--token", "key", "--project", "7", "comment", "add", "--annotation", "5", "--body", "body", "--image", "-"}, string(image))
+	if code != ExitOK || stderr != "" || !strings.Contains(stdout, `"operation":"replayed"`) || calls.Load() != 2 {
+		t.Fatalf("code=%d stdout=%s stderr=%s calls=%d", code, stdout, stderr, calls.Load())
+	}
+	if len(keys) != 2 || keys[0] == "" || keys[0] != keys[1] {
+		t.Fatalf("keys = %q", keys)
+	}
+}
+
+func TestCommentAddImageReportsUnknownWhenCallerCancelsAfterDispatch(t *testing.T) {
+	_, image := cropPNG(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	var calls atomic.Int32
+	client := &http.Client{Transport: commentRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		calls.Add(1)
+		_, _ = io.Copy(io.Discard, request.Body)
+		cancel()
+		return nil, context.Canceled
+	})}
+
+	stdout, stderr, code := runCLIWithContext(t, ctx, client, []string{"--base-url", "https://screenote.test", "--token", "key", "--project", "7", "comment", "add", "--annotation", "5", "--body", "body", "--image", "-"}, string(image))
+	if stdout != "" || code != ExitGeneric || !strings.Contains(stderr, `"code":"comment_result_unknown"`) || calls.Load() != 1 {
+		t.Fatalf("code=%d stdout=%s stderr=%s calls=%d", code, stdout, stderr, calls.Load())
+	}
+}
+
+func TestCommentAddImageHeaderlessGatewayErrorsRetryOnce(t *testing.T) {
+	_, image := cropPNG(t)
+	for _, status := range []int{http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body)
+				if calls.Add(1) == 1 {
+					w.WriteHeader(status)
+					_, _ = w.Write([]byte(`{"error":"Gateway failure"}`))
+					return
+				}
+				w.Header().Set("Screenote-API-Capability", screenote.ImageCommentsCapability)
+				_, _ = w.Write([]byte(`{"operation":"replayed","comment":{"id":11},"attachment":{"id":12}}`))
+			}))
+			defer server.Close()
+
+			_, stderr, code := runCLI(t, []string{"--base-url", server.URL, "--token", "key", "--project", "7", "comment", "add", "--annotation", "5", "--body", "body", "--image", "-"}, string(image))
+			if code != ExitOK || stderr != "" || calls.Load() != 2 {
+				t.Fatalf("code=%d stderr=%s calls=%d", code, stderr, calls.Load())
+			}
+		})
 	}
 }
 

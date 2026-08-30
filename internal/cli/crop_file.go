@@ -165,6 +165,7 @@ func (crop *preparedCrop) stage() error {
 		keep = false
 		return genericError("crop_write_failed", "crop file could not be written")
 	}
+	crop.data = nil
 	return nil
 }
 

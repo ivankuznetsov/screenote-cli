@@ -321,6 +321,56 @@ func TestAnnotationGetAttachmentDownloadFailurePublishesNothingAndRedactsToken(t
 	}
 }
 
+func TestAnnotationGetRevokedAttachmentAccessPublishesNothingAndRedactsErrors(t *testing.T) {
+	png := []byte("\x89PNG\r\n\x1a\nfirst")
+	jpeg := []byte("\xff\xd8\xffsecond")
+	const purposeToken = "never-print-revoked-purpose-token"
+	const bearerToken = "never-print-revoked-bearer"
+
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			codeName := "unauthorized"
+			if status == http.StatusForbidden {
+				codeName = "forbidden"
+			}
+			var server *httptest.Server
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v1/annotations/5":
+					writeAttachmentDetail(t, w, map[string]any{
+						"id": 5,
+						"attachments": []any{
+							attachmentJSON(server.URL, 12, "image/png", png, "first-token", time.Now().Add(5*time.Minute)),
+							attachmentJSON(server.URL, 13, "image/jpeg", jpeg, purposeToken, time.Now().Add(5*time.Minute)),
+						},
+						"comments": []any{},
+					})
+				case "/api/media/image_attachments/12":
+					writeImage(w, "image/png", png)
+				case "/api/media/image_attachments/13":
+					w.WriteHeader(status)
+					_, _ = fmt.Fprintf(w, `{"error":"denied %s %s","code":"%s"}`, purposeToken, bearerToken, codeName)
+				}
+			}))
+			defer server.Close()
+			directory := filepath.Join(t.TempDir(), "attachments")
+
+			stdout, stderr, exit := runCLI(t, []string{"--base-url", server.URL, "--token", bearerToken, "--project", "7", "annotation", "get", "--annotation", "5", "--attachments-dir", directory}, "")
+			if stdout != "" || exit != ExitAuth || !strings.Contains(stderr, `"code":"`+codeName+`"`) ||
+				strings.Contains(stderr, purposeToken) || strings.Contains(stderr, bearerToken) {
+				t.Fatalf("exit=%d stdout=%s stderr=%s", exit, stdout, stderr)
+			}
+			entries, err := os.ReadDir(directory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 0 {
+				t.Fatalf("partial files published: %#v", entries)
+			}
+		})
+	}
+}
+
 func TestAnnotationGetRefreshesExpiredAndNotFoundLocatorsWithProgress(t *testing.T) {
 	for _, mode := range []string{"expired", "not-found"} {
 		t.Run(mode, func(t *testing.T) {
@@ -401,6 +451,7 @@ func TestAnnotationGetRejectsRefreshWithoutProgress(t *testing.T) {
 func TestAnnotationGetComposesAttachmentsAndCropIntoOneDocument(t *testing.T) {
 	encoded, crop := cropPNG(t)
 	image := []byte("\x89PNG\r\n\x1a\nattachment")
+	cropDirectory := t.TempDir()
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/annotations/5" {
@@ -411,11 +462,18 @@ func TestAnnotationGetComposesAttachmentsAndCropIntoOneDocument(t *testing.T) {
 			})
 			return
 		}
+		staged, err := filepath.Glob(filepath.Join(cropDirectory, ".screenote-crop-*"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(staged) != 0 {
+			t.Fatalf("crop was staged before attachment download completed: %q", staged)
+		}
 		writeImage(w, "image/png", image)
 	}))
 	defer server.Close()
 	directory := filepath.Join(t.TempDir(), "attachments")
-	cropPath := filepath.Join(t.TempDir(), "crop.png")
+	cropPath := filepath.Join(cropDirectory, "crop.png")
 
 	stdout, stderr, code := runCLI(t, []string{"--base-url", server.URL, "--token", "key", "--project", "7", "annotation", "get", "--annotation", "5", "--attachments-dir", directory, "--crop-file", cropPath}, "")
 	if code != ExitOK || stderr != "" || strings.Count(strings.TrimSpace(stdout), "\n") != 0 {

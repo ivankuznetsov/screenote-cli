@@ -101,13 +101,34 @@ screenote --project 7 screenshot list --status ready --limit 25
 screenote --project 7 annotation list --screenshot 123 --status open
 screenote --project 7 annotation get --annotation 456
 screenote --project 7 annotation get --annotation 456 --crop-file annotation-456.png
+screenote --project 7 annotation get --annotation 456 --attachments-dir references
+screenote --project 7 annotation get --annotation 456 --attachments-dir references --crop-file annotation-456.png
 screenote --project 7 annotation resolve --annotation 456 --comment "Fixed in abc123"
 screenote --project 7 comment add --annotation 456 --body "Fix pushed in abc123"
+screenote --project 7 comment add --annotation 456 --body "Change this element" --image reference.png
+cat reference.webp | screenote --project 7 comment add --annotation 456 --body "Match this treatment" --image -
 screenote update --check
 screenote update
 ```
 
 `annotation get --crop-file PATH` decodes the annotation crop to a private local PNG (mode `0600`). Its JSON output includes `crop_file` and omits `cropped_image_base64`; without the flag, the API response is printed unchanged.
+
+`comment add --image PATH|-` posts one PNG, JPEG, or WebP image together with
+the required comment body. Images are limited to 20 MiB. The CLI spools the
+input privately before sending it and makes one safe same-request retry when
+delivery is ambiguous. If the result is still unknown, it returns
+`comment_result_unknown`; manually rerunning the command may create another
+comment. Image mode requires a server that exposes the `image-comments-v1`
+contract. Older servers return `image_comments_unsupported`, and the CLI never
+falls back to creating a text-only comment.
+
+`annotation get --attachments-dir DIR` downloads every root and reply
+attachment to private, deterministic `attachment-<id>.<ext>` files without
+overwriting existing files. The transformed JSON preserves the thread shape,
+replaces expiring media URLs with absolute `local_path` values, and can be
+combined with `--crop-file` to produce one JSON document. A missing attachment
+directory is created with mode `0700`; an existing directory must not be a
+symlink or be group/world-writable.
 
 Publish a browser-free multi-page capture from image files produced by your agent or automation:
 

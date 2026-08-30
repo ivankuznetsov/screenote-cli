@@ -2,9 +2,7 @@ package cli
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -14,7 +12,7 @@ import (
 	"github.com/ivankuznetsov/screenote-cli/internal/screenote"
 )
 
-const maxCommentImageBytes int64 = 20 << 20
+const maxCommentImageBytes = screenote.MaxImageAttachmentBytes
 
 type singleImageFlag struct {
 	value string
@@ -51,7 +49,7 @@ func (a *app) addImageComment(ctx context.Context, annotationID, body, source st
 	}
 	defer image.cleanup()
 
-	key, err := newImageCommentKey()
+	key, err := screenote.RandomToken(24)
 	if err != nil {
 		return genericError("image_prepare_failed", "image comment could not be prepared")
 	}
@@ -61,7 +59,7 @@ func (a *app) addImageComment(ctx context.Context, annotationID, body, source st
 	}
 
 	for attempt := 0; attempt < 2; attempt++ {
-		if ctx.Err() != nil {
+		if callerCanceled(ctx) {
 			return genericError("request_canceled", "image comment request was canceled")
 		}
 		file, err := os.Open(image.path)
@@ -78,8 +76,8 @@ func (a *app) addImageComment(ctx context.Context, annotationID, body, source st
 		if requestErr == nil {
 			return writeRawJSON(a.stdout, raw)
 		}
-		if isCanceled(ctx, requestErr) {
-			return genericError("request_canceled", "image comment request was canceled")
+		if callerCanceled(ctx) {
+			return unknownImageCommentResult()
 		}
 		if imageCommentsUnsupported(requestErr) {
 			return genericError("image_comments_unsupported", "server does not support image comments")
@@ -89,7 +87,7 @@ func (a *app) addImageComment(ctx context.Context, annotationID, body, source st
 		}
 	}
 
-	return genericError("comment_result_unknown", "image comment result is unknown; retrying with a new command may create another comment")
+	return unknownImageCommentResult()
 }
 
 func spoolCommentImage(stdin io.Reader, source string) (_ *commentImage, resultErr error) {
@@ -134,16 +132,12 @@ func spoolCommentImage(stdin io.Reader, source string) (_ *commentImage, resultE
 	if size > maxCommentImageBytes {
 		return nil, usageError("image_too_large", "image exceeds the 20 MiB limit")
 	}
-	if err := temporary.Sync(); err != nil {
-		return nil, genericError("image_prepare_failed", "image comment could not be prepared")
-	}
-
 	var prefix [12]byte
 	n, err := temporary.ReadAt(prefix[:], 0)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, genericError("image_prepare_failed", "image comment could not be prepared")
 	}
-	contentType, extension := sniffCommentImage(prefix[:n])
+	contentType, extension := screenote.DetectImageAttachmentFormat(prefix[:n])
 	if contentType == "" {
 		return nil, usageError("unsupported_image_type", "image must be PNG, JPEG, or WebP")
 	}
@@ -159,27 +153,6 @@ func spoolCommentImage(stdin io.Reader, source string) (_ *commentImage, resultE
 	}, nil
 }
 
-func sniffCommentImage(prefix []byte) (contentType, extension string) {
-	switch {
-	case len(prefix) >= 8 && string(prefix[:8]) == "\x89PNG\r\n\x1a\n":
-		return "image/png", "png"
-	case len(prefix) >= 3 && prefix[0] == 0xff && prefix[1] == 0xd8 && prefix[2] == 0xff:
-		return "image/jpeg", "jpg"
-	case len(prefix) >= 12 && string(prefix[:4]) == "RIFF" && string(prefix[8:12]) == "WEBP":
-		return "image/webp", "webp"
-	default:
-		return "", ""
-	}
-}
-
-func newImageCommentKey() (string, error) {
-	var entropy [24]byte
-	if _, err := rand.Read(entropy[:]); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(entropy[:]), nil
-}
-
 func imageCommentsUnsupported(err error) bool {
 	var apiErr *screenote.Error
 	return errors.As(err, &apiErr) &&
@@ -192,11 +165,18 @@ func ambiguousImageCommentError(err error) bool {
 	if !errors.As(err, &apiErr) {
 		return true
 	}
+	if apiErr.Capability == screenote.ImageCommentsCapability {
+		return false
+	}
 	return apiErr.StatusCode == http.StatusBadGateway ||
 		apiErr.StatusCode == http.StatusServiceUnavailable ||
 		apiErr.StatusCode == http.StatusGatewayTimeout
 }
 
-func isCanceled(ctx context.Context, err error) bool {
-	return ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+func unknownImageCommentResult() error {
+	return genericError("comment_result_unknown", "image comment result is unknown; retrying with a new command may create another comment")
+}
+
+func callerCanceled(ctx context.Context) bool {
+	return ctx.Err() != nil
 }

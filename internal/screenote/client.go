@@ -29,6 +29,21 @@ const (
 	defaultUploadHTTPTimeout = 5 * time.Minute
 )
 
+type imageCommentResponse struct {
+	Operation  string               `json:"operation"`
+	Comment    imageCommentResource `json:"comment"`
+	Attachment imageCommentResource `json:"attachment"`
+}
+
+type imageCommentResource struct {
+	ID int `json:"id"`
+}
+
+func (response imageCommentResponse) valid() bool {
+	return (response.Operation == "created" || response.Operation == "replayed") &&
+		response.Comment.ID > 0 && response.Attachment.ID > 0
+}
+
 type Error struct {
 	StatusCode int
 	Code       string
@@ -278,17 +293,25 @@ func (c *Client) AddImageComment(ctx context.Context, annotation, project, body,
 	}()
 
 	defer pr.Close()
-	return c.doJSONWithClientAndLength(
+	var response imageCommentResponse
+	raw, err := c.doJSONWithClientAndLength(
 		ctx,
 		c.uploadHTTPClient,
 		http.MethodPost,
 		"/api/v1/annotations/"+url.PathEscape(annotation)+"/image_comments",
 		nil,
 		headers,
-		nil,
+		&response,
 		pr,
 		-1,
 	)
+	if err != nil {
+		return raw, err
+	}
+	if !response.valid() {
+		return raw, errors.New("invalid image comment response")
+	}
+	return raw, nil
 }
 
 func Query(params map[string]string) url.Values {

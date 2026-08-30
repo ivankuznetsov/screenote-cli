@@ -79,6 +79,50 @@ func TestValidateAttachmentRejectsHostileLocatorsBeforeRequest(t *testing.T) {
 	}
 }
 
+func TestValidateAttachmentAcceptsEquivalentCanonicalOrigins(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseURL string
+		media   string
+	}{
+		{
+			name:    "dns hostname casing and explicit https port",
+			baseURL: "https://SCREENOTE.example:443",
+			media:   "https://screenote.example/api/media/image_attachments/12?token=x",
+		},
+		{
+			name:    "explicit http port in media URL",
+			baseURL: "http://screenote.example",
+			media:   "http://SCREENOTE.example:80/api/media/image_attachments/12?token=x",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client, err := NewClient(test.baseURL, "bearer-secret", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			metadata := AttachmentMetadata{ID: 12, MediaType: "image/png", Size: 8, URL: test.media}
+			if err := client.ValidateAttachment(metadata); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+
+	client, err := NewClient("https://screenote.example", "bearer-secret", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata := AttachmentMetadata{
+		ID: 12, MediaType: "image/png", Size: 8,
+		URL: "https://screenote.example:444/api/media/image_attachments/12?token=x",
+	}
+	if err := client.ValidateAttachment(metadata); err == nil {
+		t.Fatal("non-default cross-port origin was accepted")
+	}
+}
+
 func TestDownloadAttachmentNeverForwardsBearerAcrossRedirect(t *testing.T) {
 	var leaked atomic.Bool
 	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
