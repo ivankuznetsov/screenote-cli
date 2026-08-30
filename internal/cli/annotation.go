@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/ivankuznetsov/screenote-cli/internal/screenote"
 	"github.com/spf13/cobra"
@@ -80,7 +81,7 @@ func (a *app) annotationCommand() *cobra.Command {
 	list.Flags().IntVar(&limit, "limit", 50, "Maximum results")
 	list.Flags().IntVar(&offset, "offset", 0, "Results to skip")
 
-	var annotationID, cropFile string
+	var annotationID, cropFile, attachmentsDir string
 	get := &cobra.Command{
 		Use:   "get",
 		Short: "Get annotation details",
@@ -88,6 +89,10 @@ func (a *app) annotationCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if annotationID == "" {
 				return missingFlag("annotation")
+			}
+			attachmentsRequested := cmd.Flags().Changed("attachments-dir")
+			if attachmentsRequested && strings.TrimSpace(attachmentsDir) == "" {
+				return usageError("invalid_attachments_directory", "--attachments-dir must name a local directory")
 			}
 			if cropFile != "" {
 				var err error
@@ -104,6 +109,15 @@ func (a *app) annotationCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if attachmentsRequested {
+				payload, err := exportAnnotationAttachments(
+					cmd.Context(), client, annotationID, project, attachmentsDir, cropFile, raw,
+				)
+				if err != nil {
+					return err
+				}
+				return writeJSON(a.stdout, payload)
+			}
 			if cropFile != "" {
 				payload, err := exportAnnotationCrop(raw, cropFile)
 				if err != nil {
@@ -116,6 +130,7 @@ func (a *app) annotationCommand() *cobra.Command {
 	}
 	get.Flags().StringVar(&annotationID, "annotation", "", "Annotation ID")
 	get.Flags().StringVar(&cropFile, "crop-file", "", "Write the annotation crop to a private local PNG file")
+	get.Flags().StringVar(&attachmentsDir, "attachments-dir", "", "Download every root and reply attachment to a private local directory")
 
 	var resolveAnnotationID, comment string
 	resolve := &cobra.Command{

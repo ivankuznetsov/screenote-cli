@@ -13,6 +13,21 @@ type ImageCommentUpload struct {
 	Body        io.Reader
 }
 
+const MaxImageAttachmentBytes int64 = 20 << 20
+
+// AttachmentMetadata is the stable identity and expiring authenticated media
+// locator returned by an annotation detail read.
+type AttachmentMetadata struct {
+	ID           int
+	MediaType    string
+	Width        int
+	Height       int
+	Size         int64
+	URL          string
+	URLExpiresAt string
+	AltText      *string
+}
+
 type Project struct {
 	ID              int    `json:"id"`
 	Name            string `json:"name"`
