@@ -69,6 +69,29 @@ func exportAnnotationCrop(raw json.RawMessage, path string) (map[string]json.Raw
 	if err := json.Unmarshal(raw, &payload); err != nil || payload == nil {
 		return nil, genericError("invalid_response", "annotation response is not valid JSON")
 	}
+	crop, err := prepareAnnotationCrop(payload, path)
+	if err != nil {
+		return nil, err
+	}
+	defer crop.cleanup()
+	if err := crop.stage(); err != nil {
+		return nil, err
+	}
+	if err := crop.publish(); err != nil {
+		return nil, err
+	}
+	crop.apply(payload)
+	return payload, nil
+}
+
+type preparedCrop struct {
+	outputPath  string
+	destination string
+	data        []byte
+	temporary   string
+}
+
+func prepareAnnotationCrop(payload map[string]json.RawMessage, path string) (*preparedCrop, error) {
 
 	encodedRaw, exists := payload["cropped_image_base64"]
 	if !exists {
@@ -98,53 +121,71 @@ func exportAnnotationCrop(raw json.RawMessage, path string) (map[string]json.Raw
 	if _, err := png.Decode(bytes.NewReader(data)); err != nil {
 		return nil, genericError("invalid_crop_data", "annotation crop is not valid base64 PNG data")
 	}
-	if err := writePrivateCrop(path, data); err != nil {
-		return nil, err
-	}
-
-	delete(payload, "cropped_image_base64")
-	cropFile, _ := json.Marshal(path)
-	payload["crop_file"] = cropFile
-	return payload, nil
-}
-
-func writePrivateCrop(path string, data []byte) error {
 	destination, err := canonicalCropDestination(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	return &preparedCrop{outputPath: path, destination: destination, data: data}, nil
+}
 
-	temporary, err := os.CreateTemp(filepath.Dir(destination), ".screenote-crop-*")
+func (crop *preparedCrop) apply(payload map[string]json.RawMessage) {
+	delete(payload, "cropped_image_base64")
+	cropFile, _ := json.Marshal(crop.outputPath)
+	payload["crop_file"] = cropFile
+}
+
+func (crop *preparedCrop) stage() error {
+	temporary, err := os.CreateTemp(filepath.Dir(crop.destination), ".screenote-crop-*")
 	if err != nil {
 		return genericError("crop_write_failed", "crop file could not be written")
 	}
-	temporaryPath := temporary.Name()
-	keep := false
+	crop.temporary = temporary.Name()
+	keep := true
 	defer func() {
 		_ = temporary.Close()
-		if !keep {
-			_ = os.Remove(temporaryPath)
+		if !keep && crop.temporary != "" {
+			_ = os.Remove(crop.temporary)
+			crop.temporary = ""
 		}
 	}()
 
 	if err := temporary.Chmod(0o600); err != nil {
+		keep = false
 		return genericError("crop_write_failed", "crop file could not be written")
 	}
-	if _, err := temporary.Write(data); err != nil {
+	if _, err := temporary.Write(crop.data); err != nil {
+		keep = false
 		return genericError("crop_write_failed", "crop file could not be written")
 	}
 	if err := temporary.Sync(); err != nil {
+		keep = false
 		return genericError("crop_write_failed", "crop file could not be written")
 	}
 	if err := temporary.Close(); err != nil {
+		keep = false
 		return genericError("crop_write_failed", "crop file could not be written")
 	}
-	if err := rejectSymlinkDestination(destination); err != nil {
+	crop.data = nil
+	return nil
+}
+
+func (crop *preparedCrop) publish() error {
+	if crop.temporary == "" {
+		return genericError("crop_write_failed", "crop file could not be written")
+	}
+	if err := rejectSymlinkDestination(crop.destination); err != nil {
 		return err
 	}
-	if err := os.Rename(temporaryPath, destination); err != nil {
+	if err := os.Rename(crop.temporary, crop.destination); err != nil {
 		return genericError("crop_write_failed", "crop file could not be written")
 	}
-	keep = true
+	crop.temporary = ""
 	return nil
+}
+
+func (crop *preparedCrop) cleanup() {
+	if crop != nil && crop.temporary != "" {
+		_ = os.Remove(crop.temporary)
+		crop.temporary = ""
+	}
 }

@@ -1,5 +1,33 @@
 package screenote
 
+import "io"
+
+const ImageCommentsCapability = "image-comments-v1"
+
+// ImageCommentUpload is one replayable multipart image body. Callers reopen
+// their immutable source for each AddImageComment attempt.
+type ImageCommentUpload struct {
+	Filename    string
+	ContentType string
+	SHA256      string
+	Body        io.Reader
+}
+
+const MaxImageAttachmentBytes int64 = 20 << 20
+
+// AttachmentMetadata is the stable identity and expiring authenticated media
+// locator returned by an annotation detail read.
+type AttachmentMetadata struct {
+	ID           int
+	MediaType    string
+	Width        int
+	Height       int
+	Size         int64
+	URL          string
+	URLExpiresAt string
+	AltText      *string
+}
+
 type Project struct {
 	ID              int    `json:"id"`
 	Name            string `json:"name"`
