@@ -138,8 +138,9 @@ func prepareManifest(manifestDir string, manifest Manifest, now time.Time) (*Pre
 		return nil, validationError("manifest_unreadable", "manifest directory cannot be read", nil)
 	}
 	seen := make(map[[3]string]struct{}, len(manifest.Images))
+	pageGroups := make(map[string][2]string, len(manifest.Images))
 	for index, entry := range manifest.Images {
-		image, err := prepareImage(rootPath, index, entry)
+		image, err := prepareImageMetadata(index, entry)
 		if err != nil {
 			return nil, err
 		}
@@ -149,9 +150,24 @@ func prepareManifest(manifestDir string, manifest Manifest, now time.Time) (*Pre
 		}
 		seen[key] = struct{}{}
 		prepared.Images = append(prepared.Images, image)
-	}
-	if err := validateViewportTitleGroups(prepared.Images); err != nil {
-		return nil, err
+		pageKey := strings.ToLower(image.Page)
+		groupKey := [2]string{image.Page, image.Title}
+		if previous, exists := pageGroups[pageKey]; exists && previous != groupKey {
+			if err := validateViewportTitleGroups(prepared.Images); err != nil {
+				return nil, err
+			}
+			return nil, validationError(
+				"multiple_screens_per_page",
+				"each page must identify one logical screen per snapshot",
+				&index,
+			)
+		}
+		pageGroups[pageKey] = groupKey
+		image, err = prepareImageFile(rootPath, image, entry.File)
+		if err != nil {
+			return nil, err
+		}
+		prepared.Images[len(prepared.Images)-1] = image
 	}
 
 	assignGroupDigests(prepared.Images)
@@ -165,7 +181,7 @@ func prepareManifest(manifestDir string, manifest Manifest, now time.Time) (*Pre
 	return prepared, nil
 }
 
-func prepareImage(rootPath string, index int, entry ImageEntry) (PreparedImage, error) {
+func prepareImageMetadata(index int, entry ImageEntry) (PreparedImage, error) {
 	page, err := normalizeLabel(entry.Page, "page", index)
 	if err != nil {
 		return PreparedImage{}, err
@@ -183,35 +199,34 @@ func prepareImage(rootPath string, index int, entry ImageEntry) (PreparedImage, 
 		return PreparedImage{}, validationError("invalid_viewport", "viewport must be desktop, tablet, or mobile", &index)
 	}
 
-	cleanRef, err := resolveLocalFile(rootPath, entry.File, index)
+	return PreparedImage{Index: index, Page: page, Title: title, Viewport: viewport}, nil
+}
+
+func prepareImageFile(rootPath string, image PreparedImage, fileRef string) (PreparedImage, error) {
+	cleanRef, err := resolveLocalFile(rootPath, fileRef, image.Index)
 	if err != nil {
 		return PreparedImage{}, err
 	}
-	file, err := openImage(rootPath, cleanRef, index)
+	file, err := openImage(rootPath, cleanRef, image.Index)
 	if err != nil {
 		return PreparedImage{}, err
 	}
-	contentSHA, mimeType, size, inspectErr := inspectImage(file, index)
+	contentSHA, mimeType, size, inspectErr := inspectImage(file, image.Index)
 	closeErr := file.Close()
 	if inspectErr != nil {
 		return PreparedImage{}, inspectErr
 	}
 	if closeErr != nil {
-		return PreparedImage{}, validationError("image_unreadable", "image file cannot be read", &index)
+		return PreparedImage{}, validationError("image_unreadable", "image file cannot be read", &image.Index)
 	}
 
-	return PreparedImage{
-		Index:         index,
-		Page:          page,
-		Title:         title,
-		Viewport:      viewport,
-		MIMEType:      mimeType,
-		ContentSHA256: contentSHA,
-		FileRefSHA256: sha256Hex([]byte(filepath.ToSlash(cleanRef))),
-		Size:          size,
-		rootPath:      rootPath,
-		fileRef:       cleanRef,
-	}, nil
+	image.MIMEType = mimeType
+	image.ContentSHA256 = contentSHA
+	image.FileRefSHA256 = sha256Hex([]byte(filepath.ToSlash(cleanRef)))
+	image.Size = size
+	image.rootPath = rootPath
+	image.fileRef = cleanRef
+	return image, nil
 }
 
 func normalizeLabel(value, field string, index int) (string, error) {

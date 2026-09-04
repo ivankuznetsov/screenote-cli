@@ -42,12 +42,20 @@ Use `--wait 5m` to override the default two-minute processing wait. The maximum 
 | `git_commit` | Required 7-40 character hexadecimal Git commit. |
 | `taken_at` | Required ISO 8601 timestamp with `Z` or an explicit numeric offset. |
 | `images` | Required array containing 1-100 entries. |
-| `images[].page` | Required page name, at most 255 characters. |
+| `images[].page` | Required stable logical screen identity, normally a normalized route, at most 255 characters. Reuse it in later runs to create versions, but assign distinct screens distinct values within one run. |
 | `images[].title` | Optional logical screenshot title; defaults to `page`. Every viewport variant of that screenshot must use the identical title. Do not append `desktop`, `tablet`, or `mobile`. |
 | `images[].file` | Required path relative to the manifest, contained within its directory. The filename may identify the viewport (for example, `home-mobile.png`). |
 | `images[].viewport` | Required `desktop`, `tablet`, or `mobile`. |
 
-Entries with the same page and title become viewport variants of one Screenote screenshot. Use one logical title for all of those entries: `"Benchmark overview"` for both desktop and mobile, never `"Benchmark overview — desktop"` and `"Benchmark overview — mobile"`. Viewport identity belongs only in `viewport` and, when useful, `file`. When separate titles on the same page look like viewport-suffixed versions of one logical title, the CLI rejects the manifest so a capture mistake cannot silently create separate screenshot cards. A lone logical title may still end in a viewport word.
+Entries with the same page and title become viewport variants of one Screenote screenshot. Use one logical title for all of those entries: `"Benchmark overview"` for both desktop and mobile, never `"Benchmark overview — desktop"` and `"Benchmark overview — mobile"`. Viewport identity belongs only in `viewport` and, when useful, `file`.
+
+Within one manifest, each case-insensitive page identity must map to one exact
+page/title group. A Page is one screen whose captures become versions across
+runs; it is not a category for several screens in the same run. For example,
+`/tasks` and `/agents` require separate Page values even when both belong to
+an “Administration” area. The CLI rejects a second group under the same Page
+before contacting Screenote. A lone logical title may still end in a viewport
+word.
 
 A page/title group may contain each viewport at most once. Every file must be a non-empty, readable PNG or JPEG no larger than 20 MB; type is detected from bytes rather than the extension.
 
