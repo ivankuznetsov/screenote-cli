@@ -27,7 +27,7 @@ func TestLoadNormalizesAndHashesManifest(t *testing.T) {
   "taken_at": "2026-07-10T12:34:56+01:00",
   "images": [
     {"page":" Home ","file":"captures/home.png","viewport":"DESKTOP"},
-    {"page":"Home","title":"Responsive","file":"captures/home-mobile.png","viewport":"mobile"}
+    {"page":"Responsive","title":"Responsive","file":"captures/home-mobile.png","viewport":"mobile"}
   ]
 }`)
 
@@ -178,6 +178,47 @@ func TestCheckedInValidManifestFixturePreflights(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsMultipleScreensUnderOnePage(t *testing.T) {
+	dir := t.TempDir()
+	writePNG(t, filepath.Join(dir, "shot.png"), color.RGBA{A: 255})
+	manifest := Manifest{
+		Version:   1,
+		GitCommit: "abc1234",
+		TakenAt:   "2026-07-10T10:00:00Z",
+		Images: []ImageEntry{
+			{Page: "Hive Web", Title: "Task board", File: "shot.png", Viewport: "desktop"},
+			{Page: "hive web", Title: "Agent status", File: "missing.png", Viewport: "desktop"},
+		},
+	}
+
+	_, err := prepareManifest(dir, manifest, time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC))
+	var validation *ValidationError
+	if !errors.As(err, &validation) ||
+		validation.Code != "multiple_screens_per_page" ||
+		validation.Index == nil ||
+		*validation.Index != 1 {
+		t.Fatalf("error = %#v", err)
+	}
+}
+
+func TestLoadUsesServerPageCaseNormalization(t *testing.T) {
+	dir := t.TempDir()
+	writePNG(t, filepath.Join(dir, "shot.png"), color.RGBA{A: 255})
+	manifest := Manifest{
+		Version:   1,
+		GitCommit: "abc1234",
+		TakenAt:   "2026-07-10T10:00:00Z",
+		Images: []ImageEntry{
+			{Page: "Straße", Title: "German street", File: "shot.png", Viewport: "desktop"},
+			{Page: "STRASSE", Title: "Capital street", File: "shot.png", Viewport: "desktop"},
+		},
+	}
+
+	if _, err := prepareManifest(dir, manifest, time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestLoadRejectsCorrelatedViewportSuffixesInSeparateTitles(t *testing.T) {
 	dir := t.TempDir()
 	writePNG(t, filepath.Join(dir, "shot.png"), color.RGBA{A: 255})
@@ -246,7 +287,7 @@ func TestLoadAllowsLoneOrSharedLogicalTitleEndingInViewportWord(t *testing.T) {
 			TakenAt:   "2026-07-10T10:00:00Z",
 			Images: []ImageEntry{
 				{Page: "Docs", Title: "Platform", File: "shot.png", Viewport: "mobile"},
-				{Page: "Docs", Title: "Platform / Mobile", File: "shot.png", Viewport: "mobile"},
+				{Page: "Mobile Docs", Title: "Platform / Mobile", File: "shot.png", Viewport: "mobile"},
 			},
 		},
 	}
@@ -285,7 +326,7 @@ func TestManifestIdentityChangesForEverySemanticInput(t *testing.T) {
 		withCommit(base, "def5678"),
 		withTakenAt(base, "2026-07-10T10:00:01Z"),
 		withImageMutation(base, 0, func(entry *ImageEntry) { entry.Page = "Checkout" }),
-		withImageMutation(base, 0, func(entry *ImageEntry) { entry.Title = "Hero" }),
+		withImageMutation(withImageMutation(base, 0, func(entry *ImageEntry) { entry.Title = "Hero" }), 1, func(entry *ImageEntry) { entry.Title = "Hero" }),
 		withImageMutation(base, 0, func(entry *ImageEntry) { entry.Viewport = "tablet" }),
 		withImageMutation(base, 0, func(entry *ImageEntry) { entry.File = "alias.png" }),
 		withImageMutation(base, 0, func(entry *ImageEntry) { entry.File = "two.png"; entry.Viewport = "tablet" }),

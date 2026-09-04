@@ -136,7 +136,13 @@ Publish a browser-free multi-page capture from image files produced by your agen
 screenote --project 7 snapshot --manifest snapshot.json
 ```
 
-The command validates and hashes the complete manifest locally before making a request, uploads images sequentially, resumes unchanged partial work without duplicates, waits for processing, and returns a Screenote review URL. It emits JSON Lines progress to stdout; other commands retain their single-JSON-document output. See [the snapshot manifest reference](docs/snapshot-manifest.md).
+The command validates and hashes the complete manifest locally before making a
+request, including the rule that one Page identifies one logical screen per
+capture run. It uploads images sequentially, resumes unchanged partial work
+without duplicates, waits for processing, and returns a Screenote review URL.
+It emits JSON Lines progress to stdout; other commands retain their
+single-JSON-document output. See
+[the snapshot manifest reference](docs/snapshot-manifest.md).
 
 Successful commands write JSON to stdout. Errors write JSON to stderr:
 
