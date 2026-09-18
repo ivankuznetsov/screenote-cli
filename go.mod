@@ -1,12 +1,12 @@
 module github.com/ivankuznetsov/screenote-cli
 
-go 1.26
+go 1.26.0
 
 require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/spf13/cobra v1.10.1
-	golang.org/x/sys v0.47.0
-	golang.org/x/term v0.45.0
+	golang.org/x/sys v0.48.0
+	golang.org/x/term v0.46.0
 )
 
 require (
